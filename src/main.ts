@@ -201,6 +201,7 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 			if (newHost !== previousHost || !wasAuthorized) {
 				await this.fetchSettingsAndEnsureSchema(device.model, newHost)
 			}
+			this.updateStatus(InstanceStatus.Ok)
 			return
 		}
 
@@ -218,6 +219,7 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 				if (newHost !== previousHost || !wasAuthorized) {
 					await this.fetchSettingsAndEnsureSchema(manualModel, newHost)
 				}
+				this.updateStatus(InstanceStatus.Ok)
 			} else {
 				logger.error(
 					`Device selected (Model ${manualModel}) does not match detected device (Model ${discoveredAtIp.model}) at ${newHost} — commands blocked`,
