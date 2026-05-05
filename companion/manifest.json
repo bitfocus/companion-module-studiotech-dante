@@ -1,6 +1,6 @@
 {
 	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
-	"id": "studio-tech",
+	"id": "studio-tech-dante",
 	"name": "studio tech",
 	"shortname": "ST",
 	"description": "A Companion module for controlling Studio Technologies devices.",
