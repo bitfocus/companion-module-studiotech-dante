@@ -532,11 +532,22 @@ export function updateModelJsonFromSettings(
 	// idAdd-fold (offset into an already-added base entry), or unknown
 	// -------------------------------------------------------
 	for (const { cmd_id, id, busCh, valueBytes } of parsed) {
-		// 1a. Exact match already in output schema — just refresh the default
+		// 1a. Exact match already in output schema — refresh the default and sync busCh
 		const existingExact = out.cmdSchema.find((a) => a.cmd_id === cmd_id && a.id === id)
 		if (existingExact) {
 			const opt = existingExact.options?.find((o) => o.id === 'value')
 			if (opt) opt.default = valueBytesToOption(valueBytes).default
+
+			// Sync busCh from packet data if the existing entry is missing it
+			const seenBusChValues = busChSeen.get(`${cmd_id}_${id}`)
+			if (seenBusChValues && seenBusChValues.size > 0) {
+				const maxBusCh = Math.max(...seenBusChValues)
+				const hasBusChOption = existingExact.options?.some((o) => o.id === 'busCh')
+				if (maxBusCh === 0 && existingExact.busCh === undefined && !hasBusChOption) {
+					existingExact.busCh = 0
+					logger.info(`Synced busCh=0 onto existing entry cmd_id=${toHex(cmd_id)} id=${toHex(id)}`)
+				}
+			}
 			continue
 		}
 
