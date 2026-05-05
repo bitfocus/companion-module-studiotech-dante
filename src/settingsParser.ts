@@ -386,12 +386,6 @@ export function formatParsedSetting(setting: ParsedSetting, actions: StAction[])
 /**
  * Parses getAllSettings response with automatic format detection.
  *
- * Strategy:
- * 1. If model has explicit "sectioned" property, use that
- * 2. Otherwise, try FLAT parser first (it's simpler)
- * 3. If FLAT returns 0 settings, try SECTIONED parser
- * 4. Use whichever parser returns more settings
- *
  * @returns {settings: ParsedSetting[], detectedSectioned: boolean | null}
  */
 export function parseGetAllSettingsWithDetection(

@@ -11,38 +11,8 @@ const logger = createModuleLogger('Dante')
 export const DANTE_MSG_INFO_REQUEST = 0x0020
 /** Dante device info response message type (received on port 8702) */
 export const DANTE_MSG_INFO_RESPONSE = 0x0170
-
-/**
- * Dante device info response layout (all offsets are into the UDP payload):
- *   0x00  uint16BE  Magic (0xffff)
- *   0x02  uint16BE  Message type (0x0170)
- *   0x04  uint16BE  Sequence number
- *   0x06  2 bytes   Padding
- *   0x08  8 bytes   EUI-64 (source MAC with ff:fe inserted mid)
- *   0x10  8 bytes   "Audinate" ASCII identifier
- *   0x18  2 bytes   Dante module firmware version (major, minor)
- *   0x20  31 bytes  Device name, null-padded ASCII (max 31 chars per Dante spec)
- *   0x2e  uint16BE  Product ID
- *   0x4c  64 bytes  Manufacturer string, null-padded ASCII
- *   0xcc  64 bytes  Model string, null-padded ASCII
- */
 export const DANTE_INFO_MIN_LEN = 0xcc + 64 // 268 bytes — need full model field
 
-/**
- * Builds a Dante device info request packet (type 0x0020).
- *
- * Packet layout (32 bytes) — derived from live capture analysis:
- *   0x00  uint16BE  Magic (0xffff)
- *   0x02  uint16BE  Message type (0x0020 = device info request)
- *   0x04  uint16BE  Sequence number (random)
- *   0x06  2 bytes   Padding
- *   0x08  6 bytes   Source MAC
- *   0x0e  2 bytes   Padding
- *   0x10  8 bytes   "Audinate" ASCII identifier
- *   0x18  2 bytes   Protocol version (0x0739)
- *   0x1a  2 bytes   Sub-type (0x00c1)
- *   0x1c  uint32BE  Capability mask (0x000f4240)
- */
 export function buildDanteInfoRequest(): Buffer {
 	const buf = Buffer.alloc(32, 0)
 	const seq = Math.floor(Math.random() * 0xffff)
@@ -79,21 +49,6 @@ export function getFirstLocalMac(): Buffer {
 	return Buffer.alloc(6, 0)
 }
 
-/**
- * Parses a Dante device info response (type 0x0170) into a DeviceInfo.
- *
- * Response layout (key offsets):
- *   0x08  8 bytes   EUI-64 — convert to MAC by dropping bytes [3] and [4] (ff:fe)
- *   0x10  8 bytes   "Audinate" identifier (used to verify this is a real response)
- *   0x18  1 byte    Dante FW major
- *   0x19  1 byte    Dante FW minor
- *   0x20  31 bytes  Device name (Dante label), null-padded ASCII (max 31 chars)
- *   0x2e  uint16BE  Product ID
- *   0x4c  64 bytes  Manufacturer, null-padded ASCII
- *   0xcc  64 bytes  Model string, null-padded ASCII
- *
- * Returns null if buffer is too short, wrong magic, or missing model string.
- */
 export function parseDanteInfoResponse(msg: Buffer, srcIp: string): DeviceInfo | null {
 	if (msg.length < DANTE_INFO_MIN_LEN) return null
 	if (msg.readUInt16BE(0) !== 0xffff) return null
