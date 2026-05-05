@@ -1,7 +1,6 @@
 {
 	"model": "5401A",
 	"sectioned": true,
-	"refreshAfterCommand": true,
 	"cmdSchema": [
 		{
 			"cmd_id": 30,

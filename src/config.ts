@@ -12,6 +12,8 @@ export type ModuleConfig = JsonObject & {
 	host: string
 	/** Manual model selection — only used when deviceMac is '' */
 	activeModel: string
+	/** Enable parsing of unsupported ST devices */
+	devMode: boolean
 }
 
 // ============================================================================
@@ -174,6 +176,16 @@ export function GetConfigFields(discoveredDevices: DeviceInfo[] = []): SomeCompa
 			})),
 			isVisibleExpression: `!$(options:deviceMac)`,
 			tooltip: 'Select which Studio Technologies model is active for actions and feedbacks.',
+		},
+
+		// ── Dev Mode ─────────────────────────────────────────────────────────
+		{
+			type: 'checkbox',
+			id: 'devMode',
+			label: 'Dev Mode',
+			width: 12,
+			default: false,
+			tooltip: 'Enable to allow parsing of ST Devices not currently supported',
 		},
 	]
 }

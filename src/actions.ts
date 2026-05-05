@@ -18,53 +18,49 @@ export function UpdateActions(self: ModuleInstance): void {
 	const activeModel = self.activeModel
 
 	// ---------------------------------------------
-	// ✅ GLOBAL: GET ALL SETTINGS (AUTO JSON UPDATE)
+	// ✅ GLOBAL: GET ALL SETTINGS (AUTO JSON UPDATE) — Dev Mode only
 	// ---------------------------------------------
 
-	wiredActions['global_getAllSettings'] = {
-		name: 'GLOBAL: Get All Settings (Auto-Update JSON)',
-		options: [],
-		callback: async () => {
-			const model = activeModel
-			const ip = self.host
+	if (self.config.devMode) {
+		wiredActions['global_getAllSettings'] = {
+			name: 'GLOBAL: Get All Settings',
+			description: 'Use this to create a schema for a new device',
+			options: [],
+			callback: async () => {
+				const model = activeModel
+				const ip = self.host
 
-			const buf = await self.stController.requestAllSettings(ip)
+				const buf = await self.stController.requestAllSettings(ip)
 
-			// Use centralized cache to get the schema (may be null for new/unknown devices)
-			let modelJson = getDeviceSchema(model)
+				let modelJson = getDeviceSchema(model)
 
-			// Parse with auto-detection
-			const { settings: parsed, detectedSectioned } = parseGetAllSettingsWithDetection(model, buf)
-			logger.debug(`parsed reply: ${JSON.stringify(parsed)}`)
+				const { settings: parsed, detectedSectioned } = parseGetAllSettingsWithDetection(model, buf)
+				logger.debug(`parsed reply: ${JSON.stringify(parsed)}`)
 
-			if (!modelJson) {
-				// No schema yet — create a minimal one from the parsed settings
-				logger.info(`Model ${model} has no schema — creating new JSON from settings`)
-				modelJson = {
-					model,
-					sectioned: detectedSectioned ?? false,
-					refreshAfterCommand: true,
-					cmdSchema: [],
+				if (!modelJson) {
+					logger.info(`Model ${model} has no schema — creating new JSON from settings`)
+					modelJson = {
+						model,
+						sectioned: detectedSectioned ?? false,
+						cmdSchema: [],
+					}
+				} else if (detectedSectioned !== null) {
+					logger.info(`Auto-detected sectioned=${detectedSectioned}, adding to model JSON`)
+					modelJson = { ...modelJson, sectioned: detectedSectioned }
 				}
-			} else if (detectedSectioned !== null) {
-				// If we auto-detected the format, add it to the JSON
-				logger.info(`Auto-detected sectioned=${detectedSectioned}, adding to model JSON`)
-				modelJson = { ...modelJson, sectioned: detectedSectioned }
-			}
 
-			const updated = updateModelJsonFromSettings(modelJson, parsed, schemas)
-			logger.debug(`new Actions json: ${JSON.stringify(updated, null, 2)}`)
+				const updated = updateModelJsonFromSettings(modelJson, parsed, schemas)
+				logger.debug(`new Actions json: ${JSON.stringify(updated, null, 2)}`)
 
-			// Save the updated JSON to disk
-			const devicesFolder = getDevicesFolder()
-			const schemaPath = path.join(devicesFolder, `Model${model}.json`)
-			saveModelJsonPretty(schemaPath, updated)
+				const devicesFolder = getDevicesFolder()
+				const schemaPath = path.join(devicesFolder, `Model${model}.json`)
+				saveModelJsonPretty(schemaPath, updated)
 
-			// Reload the cache after writing to file
-			reloadDeviceSchemas()
+				reloadDeviceSchemas()
 
-			logger.info(`Model ${model} JSON auto-updated from getAllSettings`)
-		},
+				logger.info(`Model ${model} JSON auto-updated from getAllSettings`)
+			},
+		}
 	}
 
 	// ---------------------------------------------

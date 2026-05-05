@@ -1,7 +1,6 @@
 {
 	"model": "373A",
 	"sectioned": true,
-	"refreshAfterCommand": true,
 	"cmdSchema": [
 		{
 			"cmd_id": 18,

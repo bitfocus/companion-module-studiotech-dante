@@ -1,7 +1,6 @@
 {
 	"model": "348",
 	"sectioned": true,
-	"refreshAfterCommand": true,
 	"cmdSchema": [
 		{
 			"cmd_id": 18,
@@ -125,19 +124,6 @@
 			]
 		},
 		{
-			"cmd_id": 18,
-			"id": 37,
-			"name": "Unknown Setting 0X25",
-			"options": [
-				{
-					"id": "value",
-					"label": "Value",
-					"type": "number",
-					"default": 255
-				}
-			]
-		},
-		{
 			"cmd_id": 5,
 			"id": 21,
 			"name": "Sidetone Level",
@@ -218,18 +204,20 @@
 		{
 			"cmd_id": 9,
 			"id": 4,
-			"name": "LED Intensity",
+			"name": "LED Intensity and Action",
 			"options": [
 				{
 					"id": "value",
-					"label": "Intensity",
+					"label": "Intensity and Action",
 					"type": "dropdown",
 					"choices": [
-						{ "id": 1, "label": "High" },
-						{ "id": 0, "label": "Low" }
+						{ "id": 2, "label": "High - Off When Inactive" },
+						{ "id": 7, "label": "Low - Off When Inactive" },
+						{ "id": 9, "label": "High - Red When Inactive" },
+						{ "id": 8, "label": "Low - Red When Inactive" }
 					],
-					"default": 1,
-					"tooltip": "Set LED intensity"
+					"default": 2,
+					"tooltip": "Set LED intensity and inactive state action"
 				}
 			]
 		},
@@ -338,7 +326,8 @@
 						{ "id": 0, "label": "Off" },
 						{ "id": 1, "label": "Left" },
 						{ "id": 2, "label": "Right" },
-						{ "id": 3, "label": "Left and Right" }
+						{ "id": 3, "label": "Left and Right" },
+						{ "id": 4, "label": "Dual Channel" }
 					],
 					"default": 3,
 					"tooltip": "Set the headset routing for the selected channel"
@@ -414,11 +403,13 @@
 						{ "id": 2, "label": "IFB" },
 						{ "id": 3, "label": "Disabled" },
 						{ "id": 4, "label": "Call" },
-						{ "id": 5, "label": "All IFB" },
-						{ "id": 6, "label": "All Talk" },
+						{ "id": 5, "label": "All IFB - Unlatch Muted Channels" },
+						{ "id": 6, "label": "All Talk - Unlatch Muted Channels" },
 						{ "id": 7, "label": "18 kHz Tone" },
 						{ "id": 8, "label": "20 kHz Tone" },
-						{ "id": 10, "label": "Talk with Quindar Tone" }
+						{ "id": 10, "label": "Talk with Quindar Tone" },
+						{ "id": 16, "label": "All IFB - Don't Unlatch Muted Channels" },
+						{ "id": 17, "label": "All Talk - Don't Unlatch Muted Channels" }
 					],
 					"default": 0,
 					"tooltip": "Set the button function for the selected channel"
@@ -528,7 +519,8 @@
 					"type": "dropdown",
 					"choices": [
 						{ "id": 1, "label": "Always" },
-						{ "id": 4, "label": "Channel 1 Active" }
+						{ "id": 4, "label": "Channel Active" },
+						{ "id": 5, "label": "Channel Active Unlatches Mute" }
 					],
 					"default": 1,
 					"tooltip": "Set the listen mode for the selected channel"

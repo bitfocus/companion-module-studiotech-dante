@@ -60,7 +60,6 @@ export class StController {
 	/** Active device model and action definitions for settings decoding */
 	private model: string = ''
 	private actions: StAction[] = []
-	private refreshAfterCommand: boolean = true // Default to true (most devices need it)
 
 	/**
 	 * Known state of every setting per device IP.
@@ -162,10 +161,9 @@ export class StController {
 	 * Provide the active device model and action definitions so incoming messages
 	 * can be decoded into human-readable names. Call from main.ts after config load.
 	 */
-	public setModel(model: string, actions: StAction[], refreshAfterCommand: boolean = true): void {
+	public setModel(model: string, actions: StAction[]): void {
 		this.model = model
 		this.actions = actions
-		this.refreshAfterCommand = refreshAfterCommand
 	}
 
 	/**
@@ -364,7 +362,7 @@ export class StController {
 						this.pendingCommandCount--
 						// Only trigger requestAllSettings after a write (SET) command, not a read/poll.
 						// A write always has a value; reads (GET, BUS_GET) never do.
-						if (this.pendingCommandCount === 0 && this.refreshAfterCommand && value !== undefined) {
+						if (this.pendingCommandCount === 0 && value !== undefined) {
 							this.requestAllSettings(destIp).catch((err) => {
 								logger.warn(`Failed to refresh settings after command: ${err}`)
 							})

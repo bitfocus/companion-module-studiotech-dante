@@ -49,7 +49,6 @@ export type StAction = {
 export type StModelJson = {
 	model: string
 	sectioned?: boolean
-	refreshAfterCommand?: boolean
 	cmdSchema: StAction[]
 }
 
@@ -760,9 +759,6 @@ export function saveModelJsonPretty(filePath: string, jsonObj: StModelJson): voi
 		}
 
 		// Add other keys in order
-		if ('refreshAfterCommand' in jsonObj) {
-			orderedObj.refreshAfterCommand = jsonObj.refreshAfterCommand
-		}
 		if ('cmdSchema' in jsonObj) {
 			orderedObj.cmdSchema = jsonObj.cmdSchema.map((entry: any) => {
 				// Enforce key order within each schema entry: cmd_id, id, busCh, name, options
@@ -812,19 +808,4 @@ export function saveModelJsonPretty(filePath: string, jsonObj: StModelJson): voi
 export function loadActionsForModel(_devicesFolder: string, model: string): StAction[] {
 	const schema = getDeviceSchema(model)
 	return schema?.cmdSchema ?? []
-}
-
-/**
- * Loads the model configuration from the centralized cache.
- * @deprecated - This function is no longer needed. Use getDeviceSchema() from config.ts instead.
- */
-export function loadModelConfig(
-	_devicesFolder: string,
-	model: string,
-): { actions: StAction[]; refreshAfterCommand: boolean } {
-	const schema = getDeviceSchema(model)
-	return {
-		actions: schema?.cmdSchema ?? [],
-		refreshAfterCommand: schema?.refreshAfterCommand ?? true, // Default to true if not specified
-	}
 }

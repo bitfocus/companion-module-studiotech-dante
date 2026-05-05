@@ -1,6 +1,5 @@
 {
 	"model": "5364",
-	"refreshAfterCommand": true,
 	"cmdSchema": [
 		{
 			"cmd_id": 13,

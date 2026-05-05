@@ -1,7 +1,6 @@
 {
 	"model": "214",
 	"sectioned": true,
-	"refreshAfterCommand": true,
 	"cmdSchema": [
 		{
 			"cmd_id": 2,

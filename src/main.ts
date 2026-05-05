@@ -281,20 +281,17 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		const schema = getDeviceSchema(model)
 		if (!schema) {
 			logger.warn(`Model "${model}" not found in device schemas`)
-			this.stController.setModel(model, [], true)
+			this.stController.setModel(model, [])
 			return
 		}
 
 		const actions = Array.isArray(schema.cmdSchema) ? schema.cmdSchema : []
-		const refreshAfterCommand = schema.refreshAfterCommand ?? true
 
-		this.stController.setModel(model, actions, refreshAfterCommand)
+		this.stController.setModel(model, actions)
 		if (actions.length === 0) {
 			logger.warn(`No actions found for model "${model}" — settings decoding will use raw IDs`)
 		} else {
-			logger.debug(
-				`Loaded ${actions.length} actions for model "${model}", sectioned=${schema.sectioned}, refreshAfterCommand=${refreshAfterCommand}`,
-			)
+			logger.debug(`Loaded ${actions.length} actions for model "${model}", sectioned=${schema.sectioned}`)
 		}
 	}
 

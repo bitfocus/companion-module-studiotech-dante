@@ -1,7 +1,6 @@
 {
 	"model": "545DC",
 	"sectioned": true,
-	"refreshAfterCommand": true,
 	"cmdSchema": [
 		{
 			"cmd_id": 9,

@@ -8,6 +8,7 @@ import {
 	CompanionActionDefinitions,
 	CompanionActionDefinition,
 	CompanionFeedbackDefinitions,
+	combineRgb,
 } from '@companion-module/base'
 import { makeSettingId } from './types.js'
 import { getDeviceSchemas } from './config.js'
@@ -90,6 +91,18 @@ export function buildActions(): CompanionActionDefinitions {
 /* --------- Feedbacks --------- */
 /* ----------------------------- */
 
+/**
+ * Returns true if the value option of a schema entry is a simple Off/On dropdown
+ * (exactly two choices, one labelled "Off" and one labelled "On").
+ */
+function isOnOffDropdown(setting: any): boolean {
+	const valueOpt = setting.options?.find((o: any) => o.id === 'value')
+	if (!valueOpt || valueOpt.type !== 'dropdown' || !Array.isArray(valueOpt.choices)) return false
+	if (valueOpt.choices.length !== 2) return false
+	const labels = valueOpt.choices.map((c: any) => String(c.label).toLowerCase())
+	return labels.includes('off') && labels.includes('on')
+}
+
 export function buildFeedbacks(): CompanionFeedbackDefinitions {
 	const schemas = getDeviceSchemas()
 	const feedbacks: CompanionFeedbackDefinitions = {}
@@ -127,7 +140,31 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 				},
 			}
 
-			feedbacks[baseFeedbackId] = valueFeedback
+			// Boolean feedback for Off/On dropdowns — replaces the value feedback
+			if (isOnOffDropdown(setting)) {
+				const boolFeedbackId = `${baseFeedbackId}_bool`
+
+				// Options without 'value' (busCh/idAdd selectors only, if present)
+				const boolOptions = allOptions.filter((opt: any) => opt.id !== 'value')
+
+				const boolFeedback: any = {
+					type: 'boolean',
+					name: `[Model${model}] ${setting.name} — Is On`,
+					defaultStyle: {
+						bgcolor: combineRgb(0, 200, 0),
+						color: combineRgb(0, 0, 0),
+					},
+					options: boolOptions,
+					callback: () => {
+						/* wired later in UpdateFeedbacks */
+						return false
+					},
+				}
+
+				feedbacks[boolFeedbackId] = boolFeedback
+			} else {
+				feedbacks[baseFeedbackId] = valueFeedback
+			}
 		}
 	}
 
