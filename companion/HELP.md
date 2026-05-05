@@ -22,7 +22,6 @@ Model 5205
 Model 5304  
 Model 5364  
 Model 5365  
-Model 5401A  
 Model 5414
 
 Bugs? Questions? Sample setups? visit my support site at https://discourse.checkcheckonetwo.com/c/stream-deck-companion/studio-technologies-dante-module/36
