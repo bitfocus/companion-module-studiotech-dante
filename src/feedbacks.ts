@@ -64,8 +64,23 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 						busCh = schemaAction.busCh
 					}
 				}
+				// Last resort: look up fixed busCh directly from the raw device schema,
+				// in case getNormalizedSchemas() stripped the property (e.g. Mic Electret Power).
+				if (busCh === undefined) {
+					const rawAction = schemasRaw[model]?.cmdSchema?.find((a: any) => a.cmd_id === cmdId && a.id === settingId)
+					if (rawAction?.busCh !== undefined) {
+						busCh = rawAction.busCh
+					}
+				}
 
 				const current = self.stController.getSettingValue(ip, cmdId, settingId, busCh)
+
+				// Boolean feedbacks: any non-zero value = active (true), zero = inactive (false).
+				// This works for all On/Off settings regardless of what the "On" ID value is
+				// in the schema (e.g. Mic Electret Power uses 5 for On, not 1).
+				if (feedbackId.endsWith('_bool')) {
+					return current !== undefined && current !== 0
+				}
 
 				// Check if user wants label instead of numeric value
 				const showLabel = feedbackEvent.options['showLabel'] ?? false

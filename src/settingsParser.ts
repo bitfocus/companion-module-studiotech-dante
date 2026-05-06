@@ -44,6 +44,7 @@ export type StAction = {
 	options: StActionOption[]
 	busCh?: number // Fixed channel value for actions that don't have a channel option
 	readonly?: boolean // If true, entry is feedback-only — no action will be created
+	writeonly?: boolean // If true, entry is action-only — no feedback will be created (device never reports this value back)
 }
 
 export type StModelJson = {

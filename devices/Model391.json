@@ -6,6 +6,7 @@
 			"cmd_id": 9,
 			"id": 25,
 			"name": "Alerting State",
+			"writeonly": true,
 			"options": [
 				{
 					"id": "value",

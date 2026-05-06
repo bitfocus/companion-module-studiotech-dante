@@ -1,4 +1,5 @@
 import dgram from 'dgram'
+import os from 'os'
 import { createModuleLogger } from '@companion-module/base'
 import {
 	CMD_BUS_GET,
@@ -127,9 +128,26 @@ export class StController {
 			}
 		})
 
-		// Bind to wildcard so kernel can deliver multicast packets for joined interfaces
+		// Bind to wildcard so kernel can deliver multicast packets for joined interfaces.
+		// After binding, eagerly join 224.0.0.231 on every non-loopback IPv4 interface so
+		// that unsolicited CMD_SETTINGS_PUSH (0x0b) packets are not missed before the
+		// first outgoing command triggers the lazy ensureMembershipFor() join.
 		this.rxSocket.bind({ address: '0.0.0.0', port: this.rxPort }, () => {
 			logger.debug(`RX socket bound to 0.0.0.0:${this.rxPort}`)
+			const ifaces = os.networkInterfaces() as Record<string, import('os').NetworkInterfaceInfo[]>
+			for (const addrs of Object.values(ifaces)) {
+				for (const addr of addrs ?? []) {
+					if (addr.family === 'IPv4' && !addr.internal && !this.joinedInterfaces.has(addr.address)) {
+						try {
+							this.rxSocket.addMembership(this.multicastGroup, addr.address)
+							this.joinedInterfaces.add(addr.address)
+							logger.info(`Pre-joined multicast ${this.multicastGroup} on ${addr.address}`)
+						} catch (_e) {
+							logger.warn(`Could not pre-join multicast on ${addr.address}: ${String(_e)}`)
+						}
+					}
+				}
+			}
 		})
 	}
 
@@ -519,6 +537,15 @@ export class StController {
 		const sig = msg.subarray(16, 24)
 		if (sig.toString('ascii') !== 'Studio-T') return
 
+		// Ignore Studio-T packets from devices we haven't authorized.
+		// This prevents cross-contamination when multiple devices (or multiple
+		// Companion instances) are on the same network — all share the multicast
+		// group 224.0.0.231:8702 and will receive each other's ACKs and pushes.
+		if (!this.authorizedIps.has(srcIp)) {
+			logger.debug(`Ignoring Studio-T packet from unauthorized device ${srcIp}`)
+			return
+		}
+
 		// Payload starts at offset 24
 		// Layout: [0x5a] [cmdId|0x80] [data...] [crc]
 		const stPayload = msg.subarray(24)
@@ -616,6 +643,7 @@ export class StController {
 							if (baseAction) baseId = baseAction.id
 							const baseFeedbackKey = makeSettingId(this.model, s.cmd_id, baseId)
 							this.feedbackCallback(baseFeedbackKey)
+							this.feedbackCallback(baseFeedbackKey + '_bool')
 						} else {
 							logger.warn(`feedbackCallback not set — skipping feedback update for ${stateKey}`)
 						}

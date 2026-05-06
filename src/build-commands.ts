@@ -112,6 +112,9 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 		if (!Array.isArray(cmdSchema)) continue
 
 		for (const setting of cmdSchema) {
+			// Skip write-only entries — they are action-only (device never reports value back)
+			if (setting.writeonly === true) continue
+
 			const baseFeedbackId = makeSettingId(model, setting.cmd_id, setting.id)
 
 			// Build options
