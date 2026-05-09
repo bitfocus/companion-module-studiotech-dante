@@ -1,0 +1,190 @@
+{
+	"model": "5401A",
+	"sectioned": true,
+	"cmdSchema": [
+		{
+			"cmd_id": 30,
+			"id": 14,
+			"name": "Current Clock Source",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Clock Source",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Internal" },
+						{ "id": 1, "label": "Sync Input" },
+						{ "id": 2, "label": "Dante" },
+						{ "id": 3, "label": "GNSS" },
+						{ "id": 128, "label": "Internal (Failover Active)" },
+						{ "id": 129, "label": "Sync Input (Failover Active)" },
+						{ "id": 130, "label": "Dante (Failover Active)" },
+						{ "id": 131, "label": "GNSS (Failover Active)" }
+					],
+					"default": 0,
+					"tooltip": "Read-only: current active clock source"
+				}
+			]
+		},
+		{
+			"cmd_id": 30,
+			"id": 15,
+			"name": "Sync Input Status",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Status",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Unlocked" },
+						{ "id": 1, "label": "Locked (Active)" },
+						{ "id": 2, "label": "Idle" },
+						{ "id": 3, "label": "Locked (Standby)" }
+					],
+					"default": 0,
+					"tooltip": "Read-only: sync input lock status"
+				}
+			]
+		},
+		{
+			"cmd_id": 30,
+			"id": 16,
+			"name": "Sync Input Type",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Type",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Word Clock" },
+						{ "id": 1, "label": "Video" },
+						{ "id": 2, "label": "10 MHz" }
+					],
+					"default": 0,
+					"tooltip": "Read-only: detected sync input signal type"
+				}
+			]
+		},
+		{
+			"cmd_id": 30,
+			"id": 17,
+			"name": "Primary PTPv1 Status",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Status",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 4, "label": "Disabled" },
+						{ "id": 7, "label": "Leader" },
+						{ "id": 10, "label": "Follower" },
+						{ "id": 12, "label": "Link Down" },
+						{ "id": 13, "label": "Error" }
+					],
+					"default": 4,
+					"tooltip": "Read-only: Primary PTPv1 port status"
+				}
+			]
+		},
+		{
+			"cmd_id": 30,
+			"id": 18,
+			"name": "Primary PTPv2 Status",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Status",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 4, "label": "Disabled" },
+						{ "id": 7, "label": "Leader" },
+						{ "id": 10, "label": "Follower" },
+						{ "id": 12, "label": "Link Down" },
+						{ "id": 13, "label": "Error" }
+					],
+					"default": 4,
+					"tooltip": "Read-only: Primary PTPv2 port status"
+				}
+			]
+		},
+		{
+			"cmd_id": 30,
+			"id": 19,
+			"name": "Secondary PTPv1 Status",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Status",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 4, "label": "Disabled" },
+						{ "id": 7, "label": "Leader" },
+						{ "id": 10, "label": "Follower" },
+						{ "id": 12, "label": "Link Down" },
+						{ "id": 13, "label": "Error" }
+					],
+					"default": 4,
+					"tooltip": "Read-only: Secondary PTPv1 port status"
+				}
+			]
+		},
+		{
+			"cmd_id": 30,
+			"id": 20,
+			"name": "Secondary PTPv2 Status",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Status",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 4, "label": "Disabled" },
+						{ "id": 7, "label": "Leader" },
+						{ "id": 10, "label": "Follower" },
+						{ "id": 12, "label": "Link Down" },
+						{ "id": 13, "label": "Error" }
+					],
+					"default": 4,
+					"tooltip": "Read-only: Secondary PTPv2 port status"
+				}
+			]
+		},
+		{
+			"cmd_id": 31,
+			"id": 5,
+			"name": "Capabilities",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "Capabilities",
+					"type": "number",
+					"default": 0,
+					"tooltip": "Read-only: device capabilities (4 bytes, not applicable)"
+				}
+			]
+		},
+		{
+			"cmd_id": 31,
+			"id": 6,
+			"name": "Management IP Address",
+			"readonly": true,
+			"options": [
+				{
+					"id": "value",
+					"label": "IP Octet",
+					"type": "number",
+					"default": 0,
+					"tooltip": "Read-only: management IP address octet values (0x00–0xFF): n8_oct3, n8_oct2, n8_oct1, n8_oct0"
+				}
+			]
+		}
+	]
+}
