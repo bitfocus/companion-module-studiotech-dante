@@ -29,7 +29,8 @@ import {
 	DANTE_MSG_INFO_RESPONSE,
 	parseDanteInfoResponse,
 	discoverDevices,
-	buildDanteInfoRequest,
+	openConMonSession,
+	probeDevice as danteProbeDevice,
 	getMacForDestination,
 	getLocalAddressForDestination,
 } from './dante.js'
@@ -78,7 +79,7 @@ export class StController {
 	 */
 	private authorizedIps: Set<string> = new Set()
 
-	/** Callbacks registered by discoverDevices() — keyed by source IP */
+	/** Callbacks registered for Dante 0x0170 device info responses — keyed by usage */
 	private discoveryListeners: Map<string, (device: DeviceInfo) => void> = new Map()
 
 	/** Callback to trigger feedback updates when state changes */
@@ -87,11 +88,8 @@ export class StController {
 	/** Cache of local interface MAC bytes per destination IP, to avoid repeated OS lookups */
 	private macCache: Map<string, number[]> = new Map()
 
-	/** IPs for which a port-8800 Dante AMS session has been successfully opened */
+	/** IPs for which a Dante ConMon (port 8800) session has been successfully opened */
 	private sessionEstablished: Set<string> = new Set()
-
-	/** In-progress openSession() promises — prevents duplicate concurrent handshakes */
-	private sessionPending: Map<string, Promise<boolean>> = new Map()
 
 	constructor() {
 		logger.info('StController initialized')
@@ -219,181 +217,14 @@ export class StController {
 	}
 
 	/**
-	 * Converts a 6-byte MAC address to an 8-byte EUI-64 identifier by inserting
-	 * 0xFF 0xFE after the third byte and flipping the Universal/Local bit.
+	 * Opens a Dante ConMon session for the device. Caches the result so the
+	 * handshake only runs once per IP. Delegates to dante.ts openConMonSession().
 	 */
-	private macToEui64(mac: number[]): number[] {
-		return [mac[0] ^ 0x02, mac[1], mac[2], 0xff, 0xfe, mac[3], mac[4], mac[5]]
-	}
-
-	/**
-	 * Performs the 4-step Dante AMS (port 8800) session handshake with the device.
-	 * The device will not respond to Studio-T commands (port 8700) until this
-	 * handshake is complete. Idempotent — returns true immediately if already done.
-	 *
-	 * Handshake sequence:
-	 *   1. Controller → Device  78-byte Info Request   (class=0x30, direction=[9]=0x00)
-	 *   2. Device     → Controller  78-byte Info Response  (class=0x30, direction=[9]=0x01)
-	 *   3. Controller → Device  20-byte Connect Request (class=0x10, direction=[9]=0x00)
-	 *   4. Device     → Controller  32-byte Connect ACK    (class=0x10, direction=[9]=0x01)
-	 */
-	public async openSession(deviceIp: string, deviceName = ''): Promise<boolean> {
-		if (this.sessionEstablished.has(deviceIp)) return Promise.resolve(true)
-
-		// Coalesce concurrent callers — only one handshake per IP at a time
-		const pending = this.sessionPending.get(deviceIp)
-		if (pending) return pending
-
-		const promise = this._doOpenSession(deviceIp, deviceName).finally(() => {
-			this.sessionPending.delete(deviceIp)
-		})
-		this.sessionPending.set(deviceIp, promise)
-		return promise
-	}
-
-	private async _doOpenSession(deviceIp: string, deviceName = ''): Promise<boolean> {
-		const AMS_PORT = 8800
-		const TIMEOUT_MS = 3000
-
-		logger.info(`Opening AMS session with ${deviceIp}`)
-
-		return new Promise<boolean>((resolve) => {
-			let settled = false
-			let step = 0
-
-			const cleanup = (success: boolean) => {
-				if (settled) return
-				settled = true
-				clearTimeout(timer)
-				try {
-					sock.close()
-				} catch {
-					/* ignore */
-				}
-				if (success) {
-					this.sessionEstablished.add(deviceIp)
-					logger.info(`AMS session established with ${deviceIp}`)
-				} else {
-					logger.debug(`AMS session not established for ${deviceIp} — device may not require it`)
-				}
-				resolve(success)
-			}
-
-			const timer = setTimeout(() => cleanup(false), TIMEOUT_MS)
-
-			// Bind to an ephemeral source port on the local interface — no need to claim
-			// port 8800 locally. The device responds to whatever source address:port sent
-			// the request (standard UDP). This avoids EACCES / EADDRINUSE on all platforms.
-			const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true })
-
-			sock.on('error', (err) => {
-				logger.warn(`AMS socket error for ${deviceIp}: ${err.message}`)
-				cleanup(false)
-			})
-
-			sock.on('message', (msg: Buffer) => {
-				if (msg.length < 12) return
-				if (msg[0] !== 0x12 || msg[1] !== 0x00) return
-
-				const msgClass = msg[6]
-				const direction = msg[9] // 0x00=request, 0x01=response
-
-				if (step === 0 && direction === 0x01 && msgClass === 0x30 && msg.length >= 20) {
-					// Step 2: Info Response received — send Connect Request
-					step = 1
-					const pkt3 = Buffer.alloc(20, 0)
-					pkt3[0] = 0x12
-					pkt3[3] = 0x14 // length = 20
-					pkt3.writeUInt16BE(seq2, 4)
-					pkt3[6] = 0x10
-					pkt3[7] = 0x01
-					// [8]=0x00, [9]=0x00 (request), [10-11]=0x00
-					localEui64.forEach((b, i) => {
-						pkt3[12 + i] = b
-					})
-					logger.debug(`AMS step 3 TX to ${deviceIp}: ${pkt3.toString('hex')}`)
-					sock.send(pkt3, AMS_PORT, deviceIp, (err) => {
-						if (err) {
-							logger.warn(`AMS step 3 send failed: ${err.message}`)
-							cleanup(false)
-						}
-					})
-				} else if (step === 1 && direction === 0x01 && msgClass === 0x10) {
-					// Step 4: Connect ACK received — session open
-					cleanup(true)
-				}
-			})
-
-			// These are captured in the closure and set before the bind callback fires
-			let localEui64: number[] = new Array(8).fill(0)
-			let localIpBytes: number[] = [0, 0, 0, 0]
-			let localIp = '0.0.0.0'
-			const seq1 = Math.floor(Math.random() * 0xfffe) + 1
-			const seq2 = Math.floor(Math.random() * 0xfffe) + 1
-
-			const doInit = async () => {
-				try {
-					const localMac = await getMacForDestination(deviceIp)
-					localIp = await getLocalAddressForDestination(deviceIp)
-					localEui64 = this.macToEui64(localMac)
-					localIpBytes = localIp.split('.').map(Number)
-				} catch (e) {
-					logger.warn(`AMS: could not get local network info for ${deviceIp}: ${e}`)
-					cleanup(false)
-					return
-				}
-
-				// Bind to ephemeral port on the specific local interface
-				sock.bind({ port: 0, address: localIp }, () => {
-					const boundPort = (sock.address() as { port: number }).port
-					logger.debug(`AMS socket bound to ${localIp}:${boundPort}`)
-
-					// Build Info Request (78 bytes)
-					// [0-3]   magic + length: 12 00 00 4E
-					// [4-5]   seq1 (BE)
-					// [6-7]   class/subtype: 30 10
-					// [8]     0x00
-					// [9]     0x00  direction = request
-					// [10-11] 0x00 0x00
-					// [12-19] controller EUI-64
-					// [20-51] device name (32 bytes, null-padded)
-					// [52-55] local IP
-					// [56-57] 0x22 0x02
-					// [58-77] zeros
-					const pkt1 = Buffer.alloc(78, 0)
-					pkt1[0] = 0x12
-					pkt1[3] = 0x4e // 78
-					pkt1.writeUInt16BE(seq1, 4)
-					pkt1[6] = 0x30
-					pkt1[7] = 0x10
-					// [9] = 0x00 (request), already zero from alloc
-					localEui64.forEach((b, i) => {
-						pkt1[12 + i] = b
-					})
-					if (deviceName) {
-						Buffer.from(deviceName.slice(0, 31), 'ascii').copy(pkt1, 20)
-					}
-					localIpBytes.forEach((b, i) => {
-						pkt1[52 + i] = b
-					})
-					pkt1[56] = 0x22
-					pkt1[57] = 0x02
-
-					logger.debug(`AMS step 1 TX to ${deviceIp}: ${pkt1.toString('hex')}`)
-					sock.send(pkt1, AMS_PORT, deviceIp, (err) => {
-						if (err) {
-							logger.warn(`AMS step 1 send failed: ${err.message}`)
-							cleanup(false)
-						}
-					})
-				})
-			}
-
-			doInit().catch((e) => {
-				logger.warn(`AMS init failed for ${deviceIp}: ${e}`)
-				cleanup(false)
-			})
-		})
+	public async openSession(deviceIp: string): Promise<boolean> {
+		if (this.sessionEstablished.has(deviceIp)) return true
+		const ok = await openConMonSession(deviceIp)
+		if (ok) this.sessionEstablished.add(deviceIp)
+		return ok
 	}
 
 	/**
@@ -403,43 +234,15 @@ export class StController {
 	 * Does NOT require authorization — this is how authorization is established.
 	 */
 	public async probeDevice(ip: string, timeoutMs = 3000): Promise<DeviceInfo | null> {
-		return new Promise<DeviceInfo | null>((resolve) => {
-			const key = `__probe_${ip}__`
-			let resolved = false
-
-			const finish = (result: DeviceInfo | null) => {
-				if (resolved) return
-				resolved = true
-				this.discoveryListeners.delete(key)
-				resolve(result)
-			}
-
-			this.discoveryListeners.set(key, (device: DeviceInfo) => {
-				if (device.ip === ip) finish(device)
-			})
-
-			const timer = setTimeout(() => finish(null), timeoutMs)
-			timer.unref?.()
-
-			const run = async () => {
-				await this.ensureMembershipFor(ip)
-				await this.txReady
-				const query = buildDanteInfoRequest()
-				this.txSocket.send(query, this.defaultPort, ip, (err) => {
-					if (err) {
-						logger.warn(`Probe to ${ip} failed: ${err.message}`)
-						clearTimeout(timer)
-						finish(null)
-					}
-				})
-			}
-
-			run().catch((e) => {
-				logger.warn(`probeDevice setup failed for ${ip}: ${e}`)
-				clearTimeout(timer)
-				finish(null)
-			})
-		})
+		await this.txReady
+		return danteProbeDevice(
+			this.txSocket,
+			(key, cb) => this.discoveryListeners.set(key, cb),
+			(key) => this.discoveryListeners.delete(key),
+			async (destIp) => this.ensureMembershipFor(destIp),
+			ip,
+			timeoutMs,
+		)
 	}
 
 	/**
@@ -456,31 +259,21 @@ export class StController {
 	/**
 	 * Discovers Studio Technologies Dante devices on the local network.
 	 *
-	 * Strategy:
-	 *  Dante devices broadcast a 1-second announce to multicast 224.0.0.233:8708.
-	 *  We listen on that group, collect source IPs, then send a unicast device info
-	 *  request (0x0020) to each new IP on port 8700. The device responds to our IP
-	 *  on port 8702 (rxSocket), where handleIncoming() picks it up and fires the
-	 *  discoveryListeners callback.
+	 * Listens for Dante announces on 224.0.0.233:8708, sends unicast info requests
+	 * to each discovered IP, and collects 0x0170 responses via the rxSocket.
 	 */
 	public async discoverDevices(timeoutMs = 5000): Promise<DeviceInfo[]> {
-		// Register listener — handleIncoming() fires this for each 0x0170 response
 		const DISCOVERY_KEY = '__discovery__'
 		const foundDevices: DeviceInfo[] = []
 
-		const onDeviceFound = (device: DeviceInfo) => {
+		this.discoveryListeners.set(DISCOVERY_KEY, (device: DeviceInfo) => {
 			if (!foundDevices.some((d) => d.ip === device.ip)) {
 				foundDevices.push(device)
 			}
-		}
-
-		// Register the callback so handleIncoming() can invoke it when 0x0170 arrives
-		this.discoveryListeners.set(DISCOVERY_KEY, onDeviceFound)
+		})
 
 		try {
 			await this.txReady
-			// discoverDevices() in dante.ts handles the announce listening and query sending.
-			// Responses come back to rxSocket → handleIncoming() → discoveryListeners.
 			await discoverDevices(this.txSocket, async (destIp) => this.ensureMembershipFor(destIp), timeoutMs)
 			return foundDevices
 		} finally {
@@ -641,16 +434,11 @@ export class StController {
 			throw new Error(`Device at ${destIp} is not authorized — verify the IP and model match before sending commands`)
 		}
 
-		// Ensure the Dante AMS session (port 8800) is open before sending any Studio-T
-		// command. The device will not respond to port 8700 commands until this
-		// handshake completes. openSession() is idempotent — it no-ops after first success.
+		// Ensure the Dante ConMon session (port 8800) is open before sending any Studio-T
+		// command. openSession() caches the result — handshake only runs once per IP.
 		if (!this.sessionEstablished.has(destIp)) {
-			const ok = await this.openSession(destIp)
-			if (!ok) {
-				// Session failure is non-fatal for many devices — they respond to Studio-T
-				// commands regardless. Log at debug so it doesn't alarm users unnecessarily.
-				logger.debug(`AMS session could not be established for ${destIp} — proceeding anyway`)
-			}
+			await this.openSession(destIp)
+			// Session failure is non-fatal — many devices respond to Studio-T regardless.
 		}
 
 		// Ensure we are listening for replies on the interface that will receive them

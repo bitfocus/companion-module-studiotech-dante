@@ -267,3 +267,164 @@ export async function discoverDevices(
 		})
 	})
 }
+
+// ─── ConMon session (port 8800) ───────────────────────────────────────────────
+
+/** Coalesces concurrent openConMonSession calls per IP */
+const _conmonPending = new Map<string, Promise<boolean>>()
+
+/**
+ * Opens a Dante ConMon (Control & Monitoring) session with the device on port 8800.
+ * Coalesces concurrent calls for the same IP — only one handshake runs at a time.
+ *
+ * Observed 2-packet handshake (source: jsharkey/wycliffe pcap):
+ *   Client → Device  20 bytes: 12 00 00 14 [seq BE] 10 01 00 00 00 00 [MAC 6B] 00 00
+ *   Device → Client  32 bytes: 12 00 00 20 ...
+ */
+export async function openConMonSession(deviceIp: string, timeoutMs = 3000): Promise<boolean> {
+	const pending = _conmonPending.get(deviceIp)
+	if (pending) return pending
+
+	const promise = _doConMonSession(deviceIp, timeoutMs).finally(() => {
+		_conmonPending.delete(deviceIp)
+	})
+	_conmonPending.set(deviceIp, promise)
+	return promise
+}
+
+async function _doConMonSession(deviceIp: string, timeoutMs: number): Promise<boolean> {
+	return new Promise<boolean>((resolve) => {
+		let settled = false
+
+		const cleanup = (success: boolean) => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			try {
+				sock.close()
+			} catch {
+				/* ignore */
+			}
+			if (success) {
+				logger.info(`ConMon session established with ${deviceIp}`)
+			} else {
+				logger.debug(`ConMon session not established for ${deviceIp} — device may not require it`)
+			}
+			resolve(success)
+		}
+
+		const timer = setTimeout(() => cleanup(false), timeoutMs)
+		const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+
+		sock.on('error', (err) => {
+			logger.warn(`ConMon socket error for ${deviceIp}: ${err.message}`)
+			cleanup(false)
+		})
+
+		sock.on('message', (msg: Buffer) => {
+			// Device ACK: 12 00 00 20 ... (32 bytes, length field = 0x20)
+			if (msg.length >= 4 && msg[0] === 0x12 && msg[3] === 0x20) {
+				cleanup(true)
+			}
+		})
+
+		const doInit = async () => {
+			let localIp: string
+			let localMac: number[]
+			try {
+				localIp = await getLocalAddressForDestination(deviceIp)
+				localMac = await getMacForDestination(deviceIp)
+			} catch (e) {
+				logger.warn(`ConMon: could not get local network info for ${deviceIp}: ${e}`)
+				cleanup(false)
+				return
+			}
+
+			sock.bind({ port: 0, address: localIp }, () => {
+				const seq = Math.floor(Math.random() * 0xfffe) + 1
+				// 20-byte connect packet: 12 00 00 14 [seq] 10 01 00 00 00 00 [MAC 6B] 00 00
+				const pkt = Buffer.alloc(20, 0)
+				pkt[0] = 0x12
+				pkt[3] = 0x14 // total length = 20
+				pkt.writeUInt16BE(seq, 4)
+				pkt[6] = 0x10
+				pkt[7] = 0x01
+				// bytes 8-11 = zeros; bytes 12-17 = client MAC (6 bytes); bytes 18-19 = zeros
+				localMac.forEach((b, i) => {
+					pkt[12 + i] = b
+				})
+				logger.debug(`ConMon TX to ${deviceIp}: ${pkt.toString('hex')}`)
+				sock.send(pkt, 8800, deviceIp, (err) => {
+					if (err) {
+						logger.warn(`ConMon send failed for ${deviceIp}: ${err.message}`)
+						cleanup(false)
+					}
+				})
+			})
+		}
+
+		doInit().catch((e) => {
+			logger.warn(`ConMon init failed for ${deviceIp}: ${e}`)
+			cleanup(false)
+		})
+	})
+}
+
+// ─── Device probe ─────────────────────────────────────────────────────────────
+
+/**
+ * Sends a unicast Dante info request to a specific IP and waits for the device info
+ * response. Used to verify a manually configured IP.
+ *
+ * @param txSocket         Bound socket to send the query from
+ * @param registerListener Register a callback (keyed) to receive parsed DeviceInfo responses
+ * @param removeListener   Remove a previously registered listener by key
+ * @param ensureMembership Ensure multicast membership on the outgoing interface
+ * @param ip               Target device IP
+ * @param timeoutMs        Timeout in milliseconds
+ */
+export async function probeDevice(
+	txSocket: dgram.Socket,
+	registerListener: (key: string, cb: (device: DeviceInfo) => void) => void,
+	removeListener: (key: string) => void,
+	ensureMembership: (ip: string) => Promise<void>,
+	ip: string,
+	timeoutMs = 3000,
+): Promise<DeviceInfo | null> {
+	return new Promise<DeviceInfo | null>((resolve) => {
+		const key = `__probe_${ip}__`
+		let resolved = false
+
+		const finish = (result: DeviceInfo | null) => {
+			if (resolved) return
+			resolved = true
+			removeListener(key)
+			resolve(result)
+		}
+
+		registerListener(key, (device: DeviceInfo) => {
+			if (device.ip === ip) finish(device)
+		})
+
+		const timer = setTimeout(() => finish(null), timeoutMs)
+		timer.unref?.()
+
+		const run = async () => {
+			await ensureMembership(ip)
+			const query = buildDanteInfoRequest()
+			txSocket.send(query, 8700, ip, (err) => {
+				if (err) {
+					logger.warn(`Probe to ${ip} failed: ${err.message}`)
+					clearTimeout(timer)
+					finish(null)
+				}
+			})
+		}
+
+		run().catch((e) => {
+			logger.warn(`probeDevice setup failed for ${ip}: ${e}`)
+			clearTimeout(timer)
+			finish(null)
+		})
+	})
+}
