@@ -4,7 +4,7 @@
 	"name": "studio tech",
 	"shortname": "ST",
 	"description": "A Companion module for controlling Studio Technologies devices.",
-	"version": "0.6.4",
+	"version": "0.6.5",
 	"type": "connection",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-studiotech-dante.git",
