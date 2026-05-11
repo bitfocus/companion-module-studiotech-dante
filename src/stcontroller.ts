@@ -274,28 +274,21 @@ export class StController {
 					this.sessionEstablished.add(deviceIp)
 					logger.info(`AMS session established with ${deviceIp}`)
 				} else {
-					logger.warn(`AMS session failed for ${deviceIp}`)
+					logger.debug(`AMS session not established for ${deviceIp} — device may not require it`)
 				}
 				resolve(success)
 			}
 
 			const timer = setTimeout(() => cleanup(false), TIMEOUT_MS)
 
+			// Bind to an ephemeral source port on the local interface — no need to claim
+			// port 8800 locally. The device responds to whatever source address:port sent
+			// the request (standard UDP). This avoids EACCES / EADDRINUSE on all platforms.
 			const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true })
 
 			sock.on('error', (err) => {
-				if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
-					// Port 8800 is already held by Dante software (e.g. Dante Controller, DVS).
-					// That software has already performed the AMS handshake with the device,
-					// so the device is already open to Studio-T commands. Treat as success.
-					logger.info(
-						`AMS port 8800 in use by Dante software — device already open, skipping handshake for ${deviceIp}`,
-					)
-					cleanup(true)
-				} else {
-					logger.warn(`AMS socket error for ${deviceIp}: ${err.message}`)
-					cleanup(false)
-				}
+				logger.warn(`AMS socket error for ${deviceIp}: ${err.message}`)
+				cleanup(false)
 			})
 
 			sock.on('message', (msg: Buffer) => {
@@ -331,16 +324,17 @@ export class StController {
 				}
 			})
 
-			// These are captured in the closure and set synchronously before the bind callback fires
+			// These are captured in the closure and set before the bind callback fires
 			let localEui64: number[] = new Array(8).fill(0)
 			let localIpBytes: number[] = [0, 0, 0, 0]
+			let localIp = '0.0.0.0'
 			const seq1 = Math.floor(Math.random() * 0xfffe) + 1
 			const seq2 = Math.floor(Math.random() * 0xfffe) + 1
 
 			const doInit = async () => {
 				try {
 					const localMac = await getMacForDestination(deviceIp)
-					const localIp = await getLocalAddressForDestination(deviceIp)
+					localIp = await getLocalAddressForDestination(deviceIp)
 					localEui64 = this.macToEui64(localMac)
 					localIpBytes = localIp.split('.').map(Number)
 				} catch (e) {
@@ -349,7 +343,11 @@ export class StController {
 					return
 				}
 
-				sock.bind({ port: AMS_PORT, address: '0.0.0.0' }, () => {
+				// Bind to ephemeral port on the specific local interface
+				sock.bind({ port: 0, address: localIp }, () => {
+					const boundPort = (sock.address() as { port: number }).port
+					logger.debug(`AMS socket bound to ${localIp}:${boundPort}`)
+
 					// Build Info Request (78 bytes)
 					// [0-3]   magic + length: 12 00 00 4E
 					// [4-5]   seq1 (BE)
@@ -649,7 +647,9 @@ export class StController {
 		if (!this.sessionEstablished.has(destIp)) {
 			const ok = await this.openSession(destIp)
 			if (!ok) {
-				logger.warn(`AMS session could not be established for ${destIp} — command may be ignored by device`)
+				// Session failure is non-fatal for many devices — they respond to Studio-T
+				// commands regardless. Log at debug so it doesn't alarm users unnecessarily.
+				logger.debug(`AMS session could not be established for ${destIp} — proceeding anyway`)
 			}
 		}
 

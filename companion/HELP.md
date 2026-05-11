@@ -1,6 +1,6 @@
 ## Companion Module for Studio Technologies Dante Devices
 
-v0.6.5
+v0.6.6
 
 Added "read-only" property for devices like the 545DC that have indicators.
 

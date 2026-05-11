@@ -192,12 +192,15 @@ export async function discoverDevices(
 
 	return new Promise<void>((resolve) => {
 		const announceSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+		const joinedInterfaces: string[] = []
 
 		const cleanup = () => {
-			try {
-				announceSocket.dropMembership(DANTE_ANNOUNCE_GROUP)
-			} catch {
-				/* ignore */
+			for (const iface of joinedInterfaces) {
+				try {
+					announceSocket.dropMembership(DANTE_ANNOUNCE_GROUP, iface)
+				} catch {
+					/* ignore */
+				}
 			}
 			try {
 				announceSocket.close()
@@ -239,11 +242,27 @@ export async function discoverDevices(
 		})
 
 		announceSocket.bind(DANTE_ANNOUNCE_PORT, () => {
-			try {
-				announceSocket.addMembership(DANTE_ANNOUNCE_GROUP)
+			// Join 224.0.0.233 on every non-loopback IPv4 interface so that announces
+			// are received regardless of which interface the device is on.
+			// On Windows with multiple interfaces (e.g. Hyper-V + LAN), the OS default
+			// multicast interface may not be the one connected to the Dante network.
+			const ifaces = os.networkInterfaces()
+			for (const addrs of Object.values(ifaces)) {
+				for (const addr of addrs ?? []) {
+					if (addr.family === 'IPv4' && !addr.internal) {
+						try {
+							announceSocket.addMembership(DANTE_ANNOUNCE_GROUP, addr.address)
+							joinedInterfaces.push(addr.address)
+						} catch {
+							/* ignore — interface may not support multicast */
+						}
+					}
+				}
+			}
+			if (joinedInterfaces.length === 0) {
+				logger.warn(`Could not join announce multicast group on any interface`)
+			} else {
 				logger.info(`Listening for Dante announces on ${DANTE_ANNOUNCE_GROUP}:${DANTE_ANNOUNCE_PORT}`)
-			} catch (err) {
-				logger.warn(`Could not join announce multicast group: ${err}`)
 			}
 		})
 	})
