@@ -91,6 +91,9 @@ export class StController {
 	/** IPs for which a Dante ConMon (port 8800) session has been successfully opened */
 	private sessionEstablished: Set<string> = new Set()
 
+	/** Cleanup functions returned by openConMonSession() — call to stop keepalives and close the socket */
+	private _conmonCleanups: Map<string, () => void> = new Map()
+
 	constructor() {
 		logger.info('StController initialized')
 
@@ -156,6 +159,15 @@ export class StController {
 	}
 
 	public close(): void {
+		// Stop all ConMon keepalives and close their sockets before closing the main sockets
+		for (const cleanup of this._conmonCleanups.values()) {
+			try {
+				cleanup()
+			} catch {
+				/* ignore */
+			}
+		}
+		this._conmonCleanups.clear()
 		try {
 			for (const localAddr of Array.from(this.joinedInterfaces)) {
 				try {
@@ -213,6 +225,8 @@ export class StController {
 		this.deviceState.delete(ip)
 		this.macCache.delete(ip)
 		this.sessionEstablished.delete(ip)
+		this._conmonCleanups.get(ip)?.()
+		this._conmonCleanups.delete(ip)
 		logger.debug(`Revoked device at ${ip}`)
 	}
 
@@ -222,9 +236,15 @@ export class StController {
 	 */
 	public async openSession(deviceIp: string): Promise<boolean> {
 		if (this.sessionEstablished.has(deviceIp)) return true
-		const ok = await openConMonSession(deviceIp)
-		if (ok) this.sessionEstablished.add(deviceIp)
-		return ok
+		const cleanup = await openConMonSession(deviceIp)
+		const success = cleanup !== null
+		// Mark as attempted regardless of outcome — retrying immediately would hit the
+		// same bind error (EADDRINUSE). Devices that don't need ConMon work fine without it.
+		this.sessionEstablished.add(deviceIp)
+		if (success) {
+			this._conmonCleanups.set(deviceIp, cleanup)
+		}
+		return success
 	}
 
 	/**

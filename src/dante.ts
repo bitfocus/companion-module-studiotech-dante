@@ -271,17 +271,21 @@ export async function discoverDevices(
 // ─── ConMon session (port 8800) ───────────────────────────────────────────────
 
 /** Coalesces concurrent openConMonSession calls per IP */
-const _conmonPending = new Map<string, Promise<boolean>>()
+const _conmonPending = new Map<string, Promise<(() => void) | null>>()
 
 /**
  * Opens a Dante ConMon (Control & Monitoring) session with the device on port 8800.
  * Coalesces concurrent calls for the same IP — only one handshake runs at a time.
  *
- * Observed 2-packet handshake (source: jsharkey/wycliffe pcap):
- *   Client → Device  20 bytes: 12 00 00 14 [seq BE] 10 01 00 00 00 00 [MAC 6B] 00 00
- *   Device → Client  32 bytes: 12 00 00 20 ...
+ * Returns a cleanup function that stops keepalives and closes the socket,
+ * or null if the session could not be established.
+ *
+ * The 5401A (and possibly other devices) require the ConMon session to originate
+ * from port 8800 AND remain alive with periodic keepalives (type 0x004e) before
+ * they will respond to Studio-T commands. Other devices (374A, 391) accept
+ * ConMon from any ephemeral port and don't require keepalives to respond.
  */
-export async function openConMonSession(deviceIp: string, timeoutMs = 3000): Promise<boolean> {
+export async function openConMonSession(deviceIp: string, timeoutMs = 3000): Promise<(() => void) | null> {
 	const pending = _conmonPending.get(deviceIp)
 	if (pending) return pending
 
@@ -292,39 +296,69 @@ export async function openConMonSession(deviceIp: string, timeoutMs = 3000): Pro
 	return promise
 }
 
-async function _doConMonSession(deviceIp: string, timeoutMs: number): Promise<boolean> {
-	return new Promise<boolean>((resolve) => {
+async function _doConMonSession(deviceIp: string, timeoutMs: number): Promise<(() => void) | null> {
+	return new Promise<(() => void) | null>((resolve) => {
 		let settled = false
+		let keepaliveTimer: ReturnType<typeof setInterval> | null = null
 
-		const cleanup = (success: boolean) => {
-			if (settled) return
-			settled = true
-			clearTimeout(timer)
+		const closeSession = (sock: dgram.Socket) => {
+			if (keepaliveTimer) {
+				clearInterval(keepaliveTimer)
+				keepaliveTimer = null
+			}
 			try {
 				sock.close()
 			} catch {
 				/* ignore */
 			}
-			if (success) {
-				logger.info(`ConMon session established with ${deviceIp}`)
-			} else {
-				logger.debug(`ConMon session not established for ${deviceIp} — device may not require it`)
-			}
-			resolve(success)
+			logger.debug(`ConMon session closed for ${deviceIp}`)
 		}
 
-		const timer = setTimeout(() => cleanup(false), timeoutMs)
+		const fail = (sock: dgram.Socket) => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			closeSession(sock)
+			logger.debug(`ConMon session not established for ${deviceIp} — device may not require it`)
+			resolve(null)
+		}
+
+		// Bind to port 8800 — the 5401A gates Studio-T responses on ConMon
+		// originating from this port. Other devices accept ephemeral ports.
 		const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+		const timer = setTimeout(() => fail(sock), timeoutMs)
 
 		sock.on('error', (err) => {
 			logger.warn(`ConMon socket error for ${deviceIp}: ${err.message}`)
-			cleanup(false)
+			fail(sock)
 		})
 
 		sock.on('message', (msg: Buffer) => {
-			// Device ACK: 12 00 00 20 ... (32 bytes, length field = 0x20)
-			if (msg.length >= 4 && msg[0] === 0x12 && msg[3] === 0x20) {
-				cleanup(true)
+			// Device ACK: 12 00 00 20 ... (length field = 0x20)
+			if (!settled && msg.length >= 4 && msg[0] === 0x12 && msg[3] === 0x20) {
+				settled = true
+				clearTimeout(timer)
+				logger.info(`ConMon session established with ${deviceIp}`)
+
+				// Start keepalives — type 0x004e, same 20-byte format as the open packet.
+				// Required to keep the session alive on the device side.
+				// Interval matches STController (~1 second observed in captures).
+				let keepaliveSeq = Math.floor(Math.random() * 0xfffe) + 1
+				const sendKeepalive = () => {
+					const pkt = Buffer.alloc(20, 0)
+					pkt[0] = 0x12
+					pkt[3] = 0x4e // keepalive type
+					pkt.writeUInt16BE(keepaliveSeq++ & 0xffff, 4)
+					pkt[6] = 0x30
+					pkt[7] = 0x10
+					sock.send(pkt, 8800, deviceIp, () => {
+						/* fire and forget */
+					})
+				}
+				keepaliveTimer = setInterval(sendKeepalive, 1000)
+
+				// Return cleanup function to caller
+				resolve(() => closeSession(sock))
 			}
 		})
 
@@ -336,20 +370,22 @@ async function _doConMonSession(deviceIp: string, timeoutMs: number): Promise<bo
 				localMac = await getMacForDestination(deviceIp)
 			} catch (e) {
 				logger.warn(`ConMon: could not get local network info for ${deviceIp}: ${e}`)
-				cleanup(false)
+				fail(sock)
 				return
 			}
 
-			sock.bind({ port: 0, address: localIp }, () => {
+			// Bind to port 8800 so the device sees the session as coming from the
+			// standard ConMon port. reuseAddr allows this even if another process
+			// (e.g. STController) is also running a ConMon session.
+			sock.bind({ port: 8800, address: localIp }, () => {
 				const seq = Math.floor(Math.random() * 0xfffe) + 1
 				// 20-byte connect packet: 12 00 00 14 [seq] 10 01 00 00 00 00 [MAC 6B] 00 00
 				const pkt = Buffer.alloc(20, 0)
 				pkt[0] = 0x12
-				pkt[3] = 0x14 // total length = 20
+				pkt[3] = 0x14 // open type
 				pkt.writeUInt16BE(seq, 4)
 				pkt[6] = 0x10
 				pkt[7] = 0x01
-				// bytes 8-11 = zeros; bytes 12-17 = client MAC (6 bytes); bytes 18-19 = zeros
 				localMac.forEach((b, i) => {
 					pkt[12 + i] = b
 				})
@@ -357,7 +393,7 @@ async function _doConMonSession(deviceIp: string, timeoutMs: number): Promise<bo
 				sock.send(pkt, 8800, deviceIp, (err) => {
 					if (err) {
 						logger.warn(`ConMon send failed for ${deviceIp}: ${err.message}`)
-						cleanup(false)
+						fail(sock)
 					}
 				})
 			})
@@ -365,7 +401,7 @@ async function _doConMonSession(deviceIp: string, timeoutMs: number): Promise<bo
 
 		doInit().catch((e) => {
 			logger.warn(`ConMon init failed for ${deviceIp}: ${e}`)
-			cleanup(false)
+			fail(sock)
 		})
 	})
 }
