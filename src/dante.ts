@@ -8,12 +8,12 @@ const logger = createModuleLogger('Dante')
 // ─── Dante discovery constants ────────────────────────────────────────────────
 
 /** Dante device info request message type (sent to port 8700) */
-export const DANTE_MSG_INFO_REQUEST = 0x0020
+const DANTE_MSG_INFO_REQUEST = 0x0020
 /** Dante device info response message type (received on port 8702) */
 export const DANTE_MSG_INFO_RESPONSE = 0x0170
-export const DANTE_INFO_MIN_LEN = 0xcc + 64 // 268 bytes — need full model field
+const DANTE_INFO_MIN_LEN = 0xcc + 64 // 268 bytes — need full model field
 
-export function buildDanteInfoRequest(): Buffer {
+function buildDanteInfoRequest(): Buffer {
 	const buf = Buffer.alloc(32, 0)
 	const seq = Math.floor(Math.random() * 0xffff)
 
@@ -33,7 +33,7 @@ export function buildDanteInfoRequest(): Buffer {
 }
 
 /** Returns the first non-loopback MAC as a 6-byte Buffer, or zeros. */
-export function getFirstLocalMac(): Buffer {
+function getFirstLocalMac(): Buffer {
 	try {
 		const ifaces = os.networkInterfaces()
 		for (const name of Object.keys(ifaces)) {
@@ -262,7 +262,7 @@ export async function discoverDevices(
 			if (joinedInterfaces.length === 0) {
 				logger.warn(`Could not join announce multicast group on any interface`)
 			} else {
-				logger.info(`Listening for Dante announces on ${DANTE_ANNOUNCE_GROUP}:${DANTE_ANNOUNCE_PORT}`)
+				logger.debug(`Listening for Dante announces on ${DANTE_ANNOUNCE_GROUP}:${DANTE_ANNOUNCE_PORT}`)
 			}
 		})
 	})

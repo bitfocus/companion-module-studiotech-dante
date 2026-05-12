@@ -132,7 +132,6 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		this.updateVariableDefinitions()
 		this.updateVariableValues()
 
-		this.updateStatus(InstanceStatus.Ok)
 		logger.info('Device discovery complete')
 	}
 
@@ -201,7 +200,7 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 			if (newHost !== previousHost || !wasAuthorized) {
 				await this.fetchSettingsAndEnsureSchema(device.model, newHost)
 			}
-			this.updateStatus(InstanceStatus.Ok)
+			this.updateStatus(InstanceStatus.Ok, `Model ${device.model} @ ${newHost}`)
 			return
 		}
 
@@ -219,7 +218,7 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 				if (newHost !== previousHost || !wasAuthorized) {
 					await this.fetchSettingsAndEnsureSchema(manualModel, newHost)
 				}
-				this.updateStatus(InstanceStatus.Ok)
+				this.updateStatus(InstanceStatus.Ok, `Model ${manualModel} @ ${newHost}`)
 			} else {
 				logger.error(
 					`Device selected (Model ${manualModel}) does not match detected device (Model ${discoveredAtIp.model}) at ${newHost} — commands blocked`,
@@ -254,7 +253,7 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 			logger.info(`Verified Model ${probed.model} at ${newHost}`)
 			this.stController.authorizeDevice(newHost)
 			await this.fetchSettingsAndEnsureSchema(manualModel, newHost)
-			this.updateStatus(InstanceStatus.Ok)
+			this.updateStatus(InstanceStatus.Ok, `Model ${probed.model} @ ${newHost}`)
 		}
 	}
 

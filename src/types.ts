@@ -1,15 +1,3 @@
-export type CompanionInputChoice = {
-	id: string | number
-	label: string
-}
-
-export type DeviceSetting = {
-	type: string
-	label: string
-	default: string | number | boolean
-	choices?: CompanionInputChoice[]
-}
-
 export type DeviceInfo = {
 	model: string // Model number (e.g., "374A")
 	modelName?: string // Full model description (e.g., "Model 374A Intercom Beltpack")

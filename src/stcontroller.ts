@@ -148,7 +148,7 @@ export class StController {
 						try {
 							this.rxSocket.addMembership(this.multicastGroup, addr.address)
 							this.joinedInterfaces.add(addr.address)
-							logger.info(`Pre-joined multicast ${this.multicastGroup} on ${addr.address}`)
+							logger.debug(`Pre-joined multicast ${this.multicastGroup} on ${addr.address}`)
 						} catch (_e) {
 							logger.warn(`Could not pre-join multicast on ${addr.address}: ${String(_e)}`)
 						}
@@ -329,7 +329,7 @@ export class StController {
 
 		const firmware = `${major}.${minorStr}`
 
-		logger.info(`Firmware version: ${firmware}`)
+		logger.debug(`Firmware version: ${firmware}`)
 		return firmware
 	}
 

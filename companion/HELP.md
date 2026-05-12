@@ -1,17 +1,21 @@
 ## Companion Module for Studio Technologies Dante Devices
 
-v0.6.8
+v0.7.0
 
-Added "read-only" property for devices like the 545DC that have indicators.
+- Clean up
 
-Supported Devices so far:
+v0.6.5
+
+- Added "read-only" property for devices like the 545DC that have indicators.
+
+### Supported Devices so far:
 
 Model 23x  
 Model 207  
 Model 209  
 Model 214  
 Model 214A  
-Model 348
+Model 348  
 Model 370A  
 Model 373A  
 Model 374A  
@@ -24,6 +28,8 @@ Model 5364
 Model 5365  
 Model 5414
 
-Bugs? Questions? Sample setups? visit my support site at https://discourse.checkcheckonetwo.com/c/stream-deck-companion/studio-technologies-dante-module/36
+Bugs? Questions? Sample setups? Visit my support site at:
 
-Andrew Broughton 2026
+https://discourse.checkcheckonetwo.com/c/stream-deck-companion/studio-technologies-dante-module/36
+
+_Andrew Broughton 2026_

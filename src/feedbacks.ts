@@ -97,6 +97,4 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 	}
 
 	self.setFeedbackDefinitions(wiredFeedbacks)
-
-	//console.log('Feedbacks:\n', JSON.stringify(wiredFeedbacks, null, 2))
 }

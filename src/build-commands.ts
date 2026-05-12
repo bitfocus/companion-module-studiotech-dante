@@ -127,7 +127,7 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 			valueOptions.push({
 				type: 'checkbox',
 				id: 'showLabel',
-				label: 'Show Label',
+				label: 'Use Label for Value',
 				default: false,
 				tooltip: 'Return the label text instead of the numeric value',
 			})

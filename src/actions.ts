@@ -117,6 +117,4 @@ export function UpdateActions(self: ModuleInstance): void {
 	}
 
 	self.setActionDefinitions(wiredActions)
-
-	//console.log('Actions:\n', JSON.stringify(wiredActions, null, 2))
 }

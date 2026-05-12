@@ -143,7 +143,7 @@ function parseFlatIdValSequence(block: Buffer, rgbIds: Set<number> = new Set()):
 	return out
 }
 
-export function parseGetAllSettings_flat(buf: Buffer, model: string): ParsedSetting[] {
+function parseGetAllSettings_flat(buf: Buffer, model: string): ParsedSetting[] {
 	const idx = extractStPayloadIndex(buf)
 	const cmdId = buf[idx + 1] & 0x7f
 	if (cmdId !== CMD_GET_ALL_SETTINGS && cmdId !== CMD_SETTINGS_PUSH) {
@@ -163,7 +163,7 @@ export function parseGetAllSettings_flat(buf: Buffer, model: string): ParsedSett
  *  SECTIONED PARSER
  * --------------------------------------------------------*/
 
-export function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSetting[] {
+function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSetting[] {
 	const idx = extractStPayloadIndex(buf)
 	const cmdId = buf[idx + 1] & 0x7f
 	if (cmdId !== CMD_GET_ALL_SETTINGS && cmdId !== CMD_SETTINGS_PUSH) {
@@ -439,9 +439,6 @@ export function parseGetAllSettingsForModel(model: string, buf: Buffer): ParsedS
 	return sectioned ? parseGetAllSettings_sectioned(buf, model) : parseGetAllSettings_flat(buf, model)
 }
 
-/* ✅ backward-compatible export */
-export const parseGetAllSettings = parseGetAllSettingsForModel
-
 /* ---------------------------------------------------------
  *  VALUE → OPTION
  * --------------------------------------------------------*/
@@ -665,7 +662,7 @@ export function updateModelJsonFromSettings(
 						type: 'dropdown',
 						choices: busChChoices,
 						default: 0,
-					} as any)
+					})
 				}
 			}
 
@@ -800,18 +797,4 @@ export function saveModelJsonPretty(filePath: string, jsonObj: StModelJson): voi
 	} catch (e) {
 		logger.error(`File Write Error: ${e}`)
 	}
-}
-
-/* ---------------------------------------------------------
- *  LOAD DEVICE JSON
- * --------------------------------------------------------*/
-
-/**
- * Loads the actions array for a given model from the centralized cache.
- * Returns an empty array if the model is not found.
- * @deprecated - This function is no longer needed. Use getDeviceSchema() from config.ts instead.
- */
-export function loadActionsForModel(_devicesFolder: string, model: string): StAction[] {
-	const schema = getDeviceSchema(model)
-	return schema?.cmdSchema ?? []
 }
