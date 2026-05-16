@@ -92,12 +92,15 @@ export function buildActions(): CompanionActionDefinitions {
 /* ----------------------------- */
 
 /**
- * Returns true if the value option of a schema entry is a simple Off/On dropdown
- * (exactly two choices, one labelled "Off" and one labelled "On").
+ * Returns true if the setting's value option represents a boolean (on/off) choice:
+ * - type 'checkbox', OR
+ * - a 2-choice dropdown where one label is "off" and the other is "on"
  */
-function isOnOffDropdown(setting: any): boolean {
+function isBooleanDropdown(setting: any): boolean {
 	const valueOpt = setting.options?.find((o: any) => o.id === 'value')
-	if (!valueOpt || valueOpt.type !== 'dropdown' || !Array.isArray(valueOpt.choices)) return false
+	if (!valueOpt) return false
+	if (valueOpt.type === 'checkbox') return true
+	if (valueOpt.type !== 'dropdown' || !Array.isArray(valueOpt.choices)) return false
 	if (valueOpt.choices.length !== 2) return false
 	const labels = valueOpt.choices.map((c: any) => String(c.label).toLowerCase())
 	return labels.includes('off') && labels.includes('on')
@@ -124,13 +127,17 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 			const valueOptions = allOptions.filter((opt: any) => opt.id !== 'value')
 
 			// Add a checkbox option to return label instead of value
-			valueOptions.push({
-				type: 'checkbox',
-				id: 'showLabel',
-				label: 'Use Label for Value',
-				default: false,
-				tooltip: 'Return the label text instead of the numeric value',
-			})
+			// (not applicable for colorpicker settings — they have no discrete choices)
+			const isColorSetting = setting.options?.some((o: any) => o.id === 'value' && o.type === 'colorpicker')
+			if (!isColorSetting) {
+				valueOptions.push({
+					type: 'checkbox',
+					id: 'showLabel',
+					label: 'Use Label for Value',
+					default: false,
+					tooltip: 'Return the label text instead of the numeric value',
+				})
+			}
 
 			// Value feedback for all settings (appears in Variables list)
 			const valueFeedback: any = {
@@ -143,8 +150,10 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 				},
 			}
 
-			// Boolean feedback for Off/On dropdowns — replaces the value feedback
-			if (isOnOffDropdown(setting)) {
+			feedbacks[baseFeedbackId] = valueFeedback
+
+			// Boolean feedback for Off/On dropdowns — additional feedback for button coloring
+			if (isBooleanDropdown(setting)) {
 				const boolFeedbackId = `${baseFeedbackId}_bool`
 
 				// Options without 'value' (busCh/idAdd selectors only, if present)
@@ -165,8 +174,6 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 				}
 
 				feedbacks[boolFeedbackId] = boolFeedback
-			} else {
-				feedbacks[baseFeedbackId] = valueFeedback
 			}
 		}
 	}

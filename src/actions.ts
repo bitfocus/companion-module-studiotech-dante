@@ -34,19 +34,15 @@ export function UpdateActions(self: ModuleInstance): void {
 
 				let modelJson = getDeviceSchema(model)
 
-				const { settings: parsed, detectedSectioned } = parseGetAllSettingsWithDetection(model, buf)
+				const { settings: parsed } = parseGetAllSettingsWithDetection(model, buf)
 				logger.debug(`parsed reply: ${JSON.stringify(parsed)}`)
 
 				if (!modelJson) {
 					logger.info(`Model ${model} has no schema — creating new JSON from settings`)
 					modelJson = {
 						model,
-						sectioned: detectedSectioned ?? false,
 						cmdSchema: [],
 					}
-				} else if (detectedSectioned !== null) {
-					logger.info(`Auto-detected sectioned=${detectedSectioned}, adding to model JSON`)
-					modelJson = { ...modelJson, sectioned: detectedSectioned }
 				}
 
 				const updated = updateModelJsonFromSettings(modelJson, parsed, schemas)
@@ -87,6 +83,17 @@ export function UpdateActions(self: ModuleInstance): void {
 				const settingId = baseId + idAdd
 
 				await self.stController.sendAwaitAck(cmdId, busCh, settingId, value, ip)
+			},
+			learn: (event: any) => {
+				const ip = self.host
+				const idAdd = event.options['idAdd'] ?? 0
+				const settingId = baseId + idAdd
+				const busCh = event.options['busCh'] !== undefined ? event.options['busCh'] : rawAction?.busCh
+
+				const current = self.stController.getSettingValue(ip, cmdId, settingId, busCh)
+				if (current === undefined) return undefined
+
+				return { ...event.options, value: current }
 			},
 		}
 	}

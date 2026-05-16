@@ -5,7 +5,6 @@ import {
 	CMD_MIC_PRE,
 	CMD_BUS_SET,
 	CMD_CHANNEL,
-	CMD_DEV_SPEC,
 	CMD_GET_ALL_SETTINGS,
 	CMD_MIC_PRE_BUS,
 	CMD_SETTINGS_PUSH,
@@ -49,7 +48,7 @@ export type StAction = {
 
 export type StModelJson = {
 	model: string
-	sectioned?: boolean
+	useConMon?: boolean
 	cmdSchema: StAction[]
 }
 
@@ -57,29 +56,15 @@ export type StModelJson = {
  *  FORMAT HELPERS
  * --------------------------------------------------------*/
 
-function getModelConfig(model: string): { sectioned: boolean; rgbIds: Set<number> } {
+function getRgbIds(model: string): Set<number> {
 	const rgbIds = new Set<number>()
-	let sectioned = false
-
 	try {
-		// Use centralized cache instead of reading from disk
 		const json = getDeviceSchema(model)
-		if (!json) {
-			// If we can't load the schema, return defaults
-			return { sectioned, rgbIds }
-		}
-
-		// Read sectioned property (default to false if not specified)
-		sectioned = json.sectioned ?? false
-
-		// Build RGB IDs set
+		if (!json) return rgbIds
 		for (const action of json.cmdSchema || []) {
 			const hasColorpicker = action.options?.some((opt: StActionOption) => opt.type === 'colorpicker')
 			if (hasColorpicker) {
-				// Add the base ID
 				rgbIds.add(action.id)
-
-				// If this action has idAdd choices, add all the offset IDs too
 				const idAddOption = action.options?.find((opt: StActionOption) => opt.id === 'idAdd')
 				if (idAddOption?.choices) {
 					for (const choice of idAddOption.choices) {
@@ -91,10 +76,9 @@ function getModelConfig(model: string): { sectioned: boolean; rgbIds: Set<number
 			}
 		}
 	} catch (_err) {
-		// If we can't load the schema, return defaults
+		// return empty set on error
 	}
-
-	return { sectioned, rgbIds }
+	return rgbIds
 }
 
 /* ---------------------------------------------------------
@@ -114,52 +98,6 @@ function extractStPayloadIndex(buf: Buffer): number {
 }
 
 /* ---------------------------------------------------------
- *  FLAT PARSER
- * --------------------------------------------------------*/
-
-function parseFlatIdValSequence(block: Buffer, rgbIds: Set<number> = new Set()): ParsedSetting[] {
-	let p = 0
-	const out: ParsedSetting[] = []
-
-	while (p < block.length) {
-		const id = block[p]
-		if (p + 1 >= block.length) break
-
-		// RGB case - check if this ID is a known colorpicker
-		if (rgbIds.has(id) && p + 3 < block.length) {
-			out.push({
-				cmd_id: CMD_DEV_SPEC,
-				id,
-				valueBytes: [block[p + 1], block[p + 2], block[p + 3]],
-			})
-			p += 4
-			continue
-		}
-
-		out.push({ cmd_id: CMD_DEV_SPEC, id, valueBytes: [block[p + 1]] })
-		p += 2
-	}
-
-	return out
-}
-
-function parseGetAllSettings_flat(buf: Buffer, model: string): ParsedSetting[] {
-	const idx = extractStPayloadIndex(buf)
-	const cmdId = buf[idx + 1] & 0x7f
-	if (cmdId !== CMD_GET_ALL_SETTINGS && cmdId !== CMD_SETTINGS_PUSH) {
-		throw new Error('Not a getAllSettings reply')
-	}
-
-	const blockLen = buf[idx + 2]
-	const start = idx + 3
-	const end = start + blockLen
-	if (end > buf.length) throw new Error('Invalid block length')
-
-	const { rgbIds } = getModelConfig(model)
-	return parseFlatIdValSequence(buf.subarray(start, end), rgbIds)
-}
-
-/* ---------------------------------------------------------
  *  SECTIONED PARSER
  * --------------------------------------------------------*/
 
@@ -175,8 +113,7 @@ function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSettin
 	const end = buf.length - 1
 	const out: ParsedSetting[] = []
 
-	// Get RGB IDs for this model
-	const { rgbIds } = getModelConfig(model)
+	const rgbIds = getRgbIds(model)
 
 	// Command IDs that include a busCh byte in their section structure,
 	// followed by a dataLen byte and then id:val pairs.
@@ -301,8 +238,7 @@ export function parseSettingsResponse(model: string, buf: Buffer): ParsedSetting
 	if (cmdId !== CMD_GET_ALL_SETTINGS && cmdId !== CMD_SETTINGS_PUSH) {
 		throw new Error(`Not a settings block (cmdId=0x${cmdId.toString(16)})`)
 	}
-	const { sectioned } = getModelConfig(model)
-	return sectioned ? parseGetAllSettings_sectioned(buf, model) : parseGetAllSettings_flat(buf, model)
+	return parseGetAllSettings_sectioned(buf, model)
 }
 
 /**
@@ -392,51 +328,13 @@ export function formatParsedSetting(setting: ParsedSetting, actions: StAction[])
 export function parseGetAllSettingsWithDetection(
 	model: string,
 	buf: Buffer,
-): { settings: ParsedSetting[]; detectedSectioned: boolean | null } {
-	const schema = getDeviceSchema(model)
-	const declaredSectioned = schema?.sectioned
-
-	// If explicitly declared in JSON, use that
-	if (declaredSectioned !== undefined) {
-		const settings = declaredSectioned
-			? parseGetAllSettings_sectioned(buf, model)
-			: parseGetAllSettings_flat(buf, model)
-		return { settings, detectedSectioned: null } // null = used declared value
-	}
-
-	// No declaration - try both parsers and pick the best one
-	let flatSettings: ParsedSetting[] = []
-	let sectionedSettings: ParsedSetting[] = []
-
-	try {
-		flatSettings = parseGetAllSettings_flat(buf, model)
-	} catch (e) {
-		logger.debug(`Flat parser failed: ${e}`)
-	}
-
-	try {
-		sectionedSettings = parseGetAllSettings_sectioned(buf, model)
-	} catch (e) {
-		logger.debug(`Sectioned parser failed: ${e}`)
-	}
-
-	// Pick the parser that returned more settings
-	if (sectionedSettings.length > flatSettings.length) {
-		logger.info(`Auto-detected SECTIONED format (sectioned=${sectionedSettings.length} vs flat=${flatSettings.length})`)
-		return { settings: sectionedSettings, detectedSectioned: true }
-	} else if (flatSettings.length > 0) {
-		logger.info(`Auto-detected FLAT format (flat=${flatSettings.length} vs sectioned=${sectionedSettings.length})`)
-		return { settings: flatSettings, detectedSectioned: false }
-	} else {
-		// Both parsers returned 0 settings
-		logger.warn(`Warning: Both parsers returned 0 settings for model ${model}`)
-		return { settings: [], detectedSectioned: null }
-	}
+): { settings: ParsedSetting[]; detectedSectioned: null } {
+	const settings = parseGetAllSettings_sectioned(buf, model)
+	return { settings, detectedSectioned: null }
 }
 
 export function parseGetAllSettingsForModel(model: string, buf: Buffer): ParsedSetting[] {
-	const { sectioned } = getModelConfig(model)
-	return sectioned ? parseGetAllSettings_sectioned(buf, model) : parseGetAllSettings_flat(buf, model)
+	return parseGetAllSettings_sectioned(buf, model)
 }
 
 /* ---------------------------------------------------------
@@ -753,12 +651,12 @@ export function updateModelJsonFromSettings(
 
 export function saveModelJsonPretty(filePath: string, jsonObj: StModelJson): void {
 	try {
-		// Ensure proper key ordering: model, sectioned (if present), refreshAfterCommand, cmdSchema
+		// Ensure proper key ordering: model, useConMon (if present), cmdSchema
 		const orderedObj: any = { model: jsonObj.model }
 
-		// Add sectioned key if present (right after model)
-		if ('sectioned' in jsonObj) {
-			orderedObj.sectioned = jsonObj.sectioned
+		// Add useConMon key if present (right after model)
+		if ('useConMon' in jsonObj) {
+			orderedObj.useConMon = jsonObj.useConMon
 		}
 
 		// Add other keys in order

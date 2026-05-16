@@ -43,7 +43,9 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 	// ---------------------------------------------
 
 	for (const [feedbackId, feedback] of Object.entries(rawFeedbacks)) {
-		const { model, cmdId, baseId } = parseSettingId(feedbackId)
+		// Strip _bool suffix before parsing so the model/cmdId/baseId are extracted correctly
+		const parseId = feedbackId.endsWith('_bool') ? feedbackId.slice(0, -5) : feedbackId
+		const { model, cmdId, baseId } = parseSettingId(parseId)
 
 		// Only include feedbacks for the currently active model
 		if (model !== activeModel) continue
@@ -78,6 +80,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				// Boolean feedbacks: any non-zero value = active (true), zero = inactive (false).
 				// This works for all On/Off settings regardless of what the "On" ID value is
 				// in the schema (e.g. Mic Electret Power uses 5 for On, not 1).
+				// Returns a real boolean — used for button coloring only, not variables.
 				if (feedbackId.endsWith('_bool')) {
 					return current !== undefined && current !== 0
 				}
@@ -86,8 +89,13 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				const showLabel = feedbackEvent.options['showLabel'] ?? false
 
 				if (showLabel && current !== undefined) {
-					// Return the label from choices
-					return getLabelForValue(schemas, model, cmdId, settingId, current)
+					const label = getLabelForValue(schemas, model, cmdId, settingId, current)
+					// If no choice label was found (returned a number), the setting has no
+					// discrete choices — treat it as boolean and show true/false.
+					if (typeof label === 'number') {
+						return label !== 0 ? 'true' : 'false'
+					}
+					return label
 				}
 
 				// Return numeric value directly for local variable (type: 'value')

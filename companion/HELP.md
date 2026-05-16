@@ -1,6 +1,6 @@
 ## Companion Module for Studio Technologies Dante Devices
 
-v0.7.0
+v0.7.1
 
 - Clean up
 

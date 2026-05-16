@@ -1,6 +1,5 @@
 {
 	"model": "370A",
-	"sectioned": true,
 	"cmdSchema": [
 		{
 			"cmd_id": 18,

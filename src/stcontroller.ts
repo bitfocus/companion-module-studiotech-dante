@@ -25,15 +25,17 @@ import {
 	type StAction,
 	type ParsedSetting,
 } from './settingsParser.js'
+import { getDeviceSchema } from './config.js'
+
 import {
 	DANTE_MSG_INFO_RESPONSE,
 	parseDanteInfoResponse,
 	discoverDevices,
-	openConMonSession,
 	probeDevice as danteProbeDevice,
 	getMacForDestination,
 	getLocalAddressForDestination,
 } from './dante.js'
+import { openConMonSession } from './conmon.js'
 
 const logger = createModuleLogger('StController')
 
@@ -44,6 +46,8 @@ export class StController {
 
 	private txSocket: dgram.Socket
 	private rxSocket: dgram.Socket // for receiving responses (8702)
+	private rxMcastSocket: dgram.Socket | null = null // diagnostic: tracks which responses arrive via multicast
+	private mcastDeliveries: Set<string> = new Set() // keys seen on multicast socket this cycle
 	private pendingAcks: Map<
 		string,
 		{ resolve: (buf: Buffer) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
@@ -88,7 +92,8 @@ export class StController {
 	/** Cache of local interface MAC bytes per destination IP, to avoid repeated OS lookups */
 	private macCache: Map<string, number[]> = new Map()
 
-	/** IPs for which a Dante ConMon (port 8800) session has been successfully opened */
+	/** Tracks session readiness per IP — set for devices that established ConMon, and also
+	 *  for devices that don't require ConMon (useConMon not set), so the check is only done once. */
 	private sessionEstablished: Set<string> = new Set()
 
 	/** Cleanup functions returned by openConMonSession() — call to stop keepalives and close the socket */
@@ -156,6 +161,39 @@ export class StController {
 				}
 			}
 		})
+
+		// Diagnostic multicast socket — bound to the multicast group address so only
+		// multicast-delivered packets arrive here. Any Studio-T response seen on this
+		// socket was sent to 224.0.0.231; responses seen only on rxSocket are unicast.
+		this.rxMcastSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+		this.rxMcastSocket.on('error', (err) => {
+			logger.debug(`RX mcast socket error: ${err.message}`)
+		})
+		this.rxMcastSocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+			if (msg.length < 25) return
+			if (msg[0] !== 0xff || msg[1] !== 0xff) return
+			const sig = msg.subarray(16, 24)
+			if (sig.toString('ascii') !== 'Studio-T') return
+			const stPayload = msg.subarray(24)
+			if (stPayload.length < 2 || stPayload[0] !== 0x5a) return
+			const respCmdId = stPayload[1]
+			const isResponse = (respCmdId & 0x80) !== 0
+			const originalCmdId = respCmdId & 0x7f
+			if (isResponse) {
+				const key = `${rinfo.address}:${originalCmdId}`
+				const wasUnicastAlready = !this.mcastDeliveries.has(key)
+				this.mcastDeliveries.add(key)
+				logger.debug(
+					`Multicast delivery: ${rinfo.address} cmd:${toHex(originalCmdId)}` +
+						(wasUnicastAlready ? ' (unicast also pending)' : ' (multicast only so far)'),
+				)
+				// Clean up the key after a short delay so we don't accumulate stale entries
+				setTimeout(() => this.mcastDeliveries.delete(key), 500)
+			}
+		})
+		this.rxMcastSocket.bind({ address: this.multicastGroup, port: this.rxPort }, () => {
+			logger.debug(`RX mcast socket bound to ${this.multicastGroup}:${this.rxPort}`)
+		})
 	}
 
 	public close(): void {
@@ -176,6 +214,12 @@ export class StController {
 					/* ignore */
 				}
 			}
+		} catch {
+			/* ignore */
+		}
+		try {
+			this.rxMcastSocket?.close()
+			this.rxMcastSocket = null
 		} catch {
 			/* ignore */
 		}
@@ -231,11 +275,18 @@ export class StController {
 	}
 
 	/**
-	 * Opens a Dante ConMon session for the device. Caches the result so the
-	 * handshake only runs once per IP. Delegates to dante.ts openConMonSession().
+	 * Opens a Dante ConMon session for the device if "useConMon": true is set in its
+	 * device JSON. Caches the result so the handshake only runs once per IP.
+	 * Delegates to conmon.ts. Devices without useConMon are marked as ready immediately.
 	 */
 	public async openSession(deviceIp: string): Promise<boolean> {
 		if (this.sessionEstablished.has(deviceIp)) return true
+		const schema = getDeviceSchema(this.model)
+		if (!schema?.useConMon) {
+			// Device does not require ConMon — skip silently
+			this.sessionEstablished.add(deviceIp)
+			return true
+		}
 		const cleanup = await openConMonSession(deviceIp)
 		const success = cleanup !== null
 		// Mark as attempted regardless of outcome — retrying immediately would hit the
@@ -454,8 +505,9 @@ export class StController {
 			throw new Error(`Device at ${destIp} is not authorized — verify the IP and model match before sending commands`)
 		}
 
-		// Ensure the Dante ConMon session (port 8800) is open before sending any Studio-T
-		// command. openSession() caches the result — handshake only runs once per IP.
+		// If "useConMon" is set in the device JSON, ensure the Dante ConMon session
+		// (port 8800) is open before sending. openSession() caches the result — the
+		// handshake only runs once per IP. Non-useConMon devices are marked ready immediately.
 		if (!this.sessionEstablished.has(destIp)) {
 			await this.openSession(destIp)
 			// Session failure is non-fatal — many devices respond to Studio-T regardless.
@@ -562,24 +614,33 @@ export class StController {
 		const isResponse = (respCmdId & 0x80) !== 0
 		const originalCmdId = respCmdId & 0x7f // strip the response flag
 
-		// Log raw packet for CMD_GET_ALL_SETTINGS (0x0a) responses before parsing
-		if (isResponse && originalCmdId === CMD_GET_ALL_SETTINGS) {
-			logger.debug(`Received packet from ${srcIp}: ${msg.toString('hex')}`)
-		}
-
-		// Log the payload (works for both requests and responses)
-		this.logStPayload(srcIp, originalCmdId, msg, stPayload)
-
-		// Only process as ACK if this is a response to our request
+		// Responses are delivered to both unicast and multicast 224.0.0.231:8702.
+		// With two joined interfaces the rxSocket receives each response twice.
+		// Gate logging and ACK resolution on the first delivery (pending ACK present).
+		// CMD_SETTINGS_PUSH (0x0b) is unsolicited — always log it.
 		if (isResponse) {
 			const key = `${srcIp}:${originalCmdId}`
 			const pending = this.pendingAcks.get(key)
 			if (pending) {
 				this.pendingAcks.delete(key)
+				const viaMulticast = this.mcastDeliveries.has(key)
+				logger.debug(
+					`RX delivery method: ${srcIp} cmd:${toHex(originalCmdId)} via ${viaMulticast ? 'multicast' : 'unicast'}`,
+				)
+				if (originalCmdId === CMD_GET_ALL_SETTINGS) {
+					logger.debug(`Received packet from ${srcIp}: ${msg.toString('hex')}`)
+				}
+				this.logStPayload(srcIp, originalCmdId, msg, stPayload)
 				pending.resolve(msg)
+			} else if (originalCmdId === CMD_SETTINGS_PUSH) {
+				// Unsolicited push — always log
+				this.logStPayload(srcIp, originalCmdId, msg, stPayload)
 			}
+			// else: duplicate multicast delivery — suppress
+		} else {
+			// Outgoing command echo or unsolicited request from device
+			this.logStPayload(srcIp, originalCmdId, msg, stPayload)
 		}
-		// Unsolicited messages and requests from other sources are logged above
 	}
 
 	/**

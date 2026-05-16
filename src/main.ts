@@ -68,11 +68,9 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		// Determine effective model — from discovered devices first, manual config only as fallback
 		let effectiveModel: string
 		if (this.discoveredDevices.length === 0) {
-			// If a specific device MAC was saved in config, it wasn't found — stop here.
 			if (this.config.deviceMac) {
-				const modelLabel = this.config.activeModel ? `Model ${this.config.activeModel} ` : ''
 				logger.warn(`Saved device MAC "${this.config.deviceMac}" not found during discovery — stopping`)
-				this.updateStatus(InstanceStatus.ConnectionFailure, `${modelLabel}[${this.config.deviceMac}] not found`)
+				this.updateStatus(InstanceStatus.ConnectionFailure, `[${this.config.deviceMac}] not found`)
 				return
 			}
 			const manualModel = this.config.activeModel
@@ -109,11 +107,9 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 
 			effectiveModel = resolveModel(this.config, this.discoveredDevices)
 
-			// If a specific MAC was saved but isn't in the discovered list, stop.
 			if (!effectiveModel && this.config.deviceMac) {
-				const modelLabel = this.config.activeModel ? `Model ${this.config.activeModel} ` : ''
 				logger.warn(`Saved device MAC "${this.config.deviceMac}" not found among discovered devices — stopping`)
-				this.updateStatus(InstanceStatus.ConnectionFailure, `${modelLabel}[${this.config.deviceMac}] not found`)
+				this.updateStatus(InstanceStatus.ConnectionFailure, `[${this.config.deviceMac}] not found`)
 				return
 			}
 		}
