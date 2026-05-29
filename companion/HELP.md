@@ -1,5 +1,9 @@
 ## Companion Module for Studio Technologies Dante Devices
 
+v0.7.3
+
+- Add Model 216A
+
 v0.7.2
 
 - Clean up
@@ -15,6 +19,7 @@ Model 207
 Model 209  
 Model 214  
 Model 214A  
+Model 216A  
 Model 348  
 Model 370A  
 Model 373A  

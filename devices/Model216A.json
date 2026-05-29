@@ -1,0 +1,206 @@
+{
+	"model": "216A",
+	"sectioned": true,
+	"refreshAfterCommand": true,
+	"cmdSchema": [
+		{
+			"cmd_id": 5,
+			"id": 16,
+			"name": "Headphone Output Gain Range",
+			"options": [
+				{
+					"id": "value",
+					"label": "Range",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Low" },
+						{ "id": 255, "label": "High" }
+					],
+					"default": 255,
+					"tooltip": "Set headphone output gain range"
+				}
+			]
+		},
+		{
+			"cmd_id": 5,
+			"id": 17,
+			"name": "Headphone Audio Sources and Routing",
+			"options": [
+				{
+					"id": "value",
+					"label": "Mode",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Mode 1 (A:Ch1 L | B:Ch2 R | C:Sidetone)" },
+						{ "id": 1, "label": "Mode 2 (A:Ch1 L/Ch2 R | B:Bal | C:Sidetone)" },
+						{ "id": 2, "label": "Mode 3 (A:Ch1 L/Ch2 R | B:Ch3 L/Ch4 R | C:Sidetone)" },
+						{ "id": 3, "label": "Mode 4 (A:Ch1 L | B:Ch2 R | C:Ch3 L/Ch4 R)" },
+						{ "id": 4, "label": "Mode 5 (A:Ch1 L/R | B:Ch2 L/R | C:Ch3 L/Ch4 R)" }
+					],
+					"default": 2,
+					"tooltip": "Set the Mode for the Audio Source and Routing"
+				}
+			]
+		},
+		{
+			"cmd_id": 5,
+			"id": 18,
+			"name": "Sidetone Operation",
+			"options": [
+				{
+					"id": "value",
+					"label": "Operation",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Off" },
+						{ "id": 1, "label": "Main Button" },
+						{ "id": 2, "label": "Talkback Button" },
+						{ "id": 3, "label": "Main & Talkback Button" }
+					],
+					"default": 3,
+					"tooltip": "Set the Sidetone Operating Mode"
+				}
+			]
+		},
+		{
+			"cmd_id": 5,
+			"id": 19,
+			"name": "Headphone Minimum Level",
+			"options": [
+				{
+					"id": "value",
+					"label": "Value",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 40, "label": "-40dB" },
+						{ "id": 0, "label": "Full Mute" }
+					],
+					"default": 40,
+					"tooltip": "Set the minimum level for the headphones"
+				}
+			]
+		},
+		{
+			"cmd_id": 7,
+			"id": 16,
+			"name": "Main Button Mode",
+			"options": [
+				{
+					"id": "value",
+					"label": "Mode",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Push To Mute" },
+						{ "id": 1, "label": "Push To Talk" },
+						{ "id": 2, "label": "Latching" },
+						{ "id": 3, "label": "Push To Talk/Tap To Latch" },
+						{ "id": 9, "label": "Push To Mute/Tap To Latch" }
+					],
+					"default": 2,
+					"tooltip": "Set the operation mode of the main button"
+				}
+			]
+		},
+		{
+			"cmd_id": 7,
+			"id": 17,
+			"name": "Talkback Button Mode",
+			"options": [
+				{
+					"id": "idAdd",
+					"label": "Channel",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Channel 1" },
+						{ "id": 1, "label": "Channel 2" },
+						{ "id": 2, "label": "Channel 3" }
+					],
+					"default": 0,
+					"tooltip": "Select the phones channel"
+				},
+				{
+					"id": "value",
+					"label": "Mode",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 1, "label": "Push To Talk" },
+						{ "id": 2, "label": "Latching" },
+						{ "id": 3, "label": "Push To Talk/Tap To Latch" }
+					],
+					"default": 1,
+					"tooltip": "Set the operation mode of the talkback button"
+				}
+			]
+		},
+		{
+			"cmd_id": 9,
+			"id": 0,
+			"name": "Operating Mode",
+			"options": [
+				{
+					"id": "value",
+					"label": "Mode",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "On-Air" },
+						{ "id": 1, "label": "Production" },
+						{ "id": 2, "label": "Production with Dim" },
+						{ "id": 3, "label": "Production with Tone" },
+						{ "id": 4, "label": "Production with Dim and Tone" }
+					],
+					"default": 0,
+					"tooltip": "Set the Operating mode"
+				}
+			]
+		},
+		{
+			"cmd_id": 9,
+			"id": 52,
+			"name": "Relay Output Mode",
+			"options": [
+				{
+					"id": "idAdd",
+					"label": "Relay",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Relay 1" },
+						{ "id": 1, "label": "Relay 2" }
+					],
+					"default": 0,
+					"tooltip": "Select the Relay #"
+				},
+				{
+					"id": "value",
+					"label": "Mode",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Off" },
+						{ "id": 1, "label": "Main Button" },
+						{ "id": 2, "label": "Talkback Button" },
+						{ "id": 10, "label": "Main & Talkback Button" }
+					],
+					"default": 0,
+					"tooltip": "Set the Relay Output Mode"
+				}
+			]
+		},
+		{
+			"cmd_id": 9,
+			"id": 4,
+			"name": "Button Backlight Intensity",
+			"options": [
+				{
+					"id": "value",
+					"label": "Intensity",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 1, "label": "High" },
+						{ "id": 0, "label": "Low" }
+					],
+					"default": 0,
+					"tooltip": "LED Intensity"
+				}
+			]
+		}
+	]
+}
