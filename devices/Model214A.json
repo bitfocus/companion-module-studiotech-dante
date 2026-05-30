@@ -232,28 +232,19 @@
 		{
 			"cmd_id": 9,
 			"id": 52,
-			"name": "Relay Output 1",
+			"name": "Relay Output Mode",
 			"options": [
 				{
-					"id": "value",
-					"label": "Mode",
+					"id": "idAdd",
+					"label": "Relay",
 					"type": "dropdown",
 					"choices": [
-						{ "id": 0, "label": "Off" },
-						{ "id": 1, "label": "Main Button" },
-						{ "id": 2, "label": "Talkback Button" },
-						{ "id": 10, "label": "Main & Talkback Button" }
+						{ "id": 0, "label": "Relay 1" },
+						{ "id": 1, "label": "Relay 2" }
 					],
 					"default": 0,
-					"tooltip": "Set the Relay Output Mode"
-				}
-			]
-		},
-		{
-			"cmd_id": 9,
-			"id": 53,
-			"name": "Relay Output 2",
-			"options": [
+					"tooltip": "Select the Relay #"
+				},
 				{
 					"id": "value",
 					"label": "Mode",
