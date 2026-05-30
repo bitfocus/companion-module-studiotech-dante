@@ -70,7 +70,9 @@ export function buildActions(): CompanionActionDefinitions {
 
 			const actionId = makeSettingId(model, a.cmd_id, a.id)
 
-			const options = (a.options ?? []).map(buildOption)
+			// Fixed-value actions: keep idAdd/busCh selectors but drop the value option
+			const allBuiltOptions = (a.options ?? []).map(buildOption)
+			const options = a.value !== undefined ? allBuiltOptions.filter((o: any) => o.id !== 'value') : allBuiltOptions
 
 			const action: CompanionActionDefinition = {
 				name: `[Model${model}] ${a.name}`,
@@ -119,6 +121,28 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 			if (setting.writeonly === true) continue
 
 			const baseFeedbackId = makeSettingId(model, setting.cmd_id, setting.id)
+
+			// Fixed-value entries: single boolean feedback — true when current value matches the fixed value
+			if (setting.value !== undefined) {
+				const fixedOptions = (setting.options ?? [])
+					.map(buildOption)
+					.filter((opt: any) => opt.id === 'busCh' || opt.id === 'idAdd')
+
+				feedbacks[baseFeedbackId] = {
+					type: 'boolean',
+					name: `[Model${model}] ${setting.name} — Active`,
+					defaultStyle: {
+						bgcolor: combineRgb(0, 200, 0),
+						color: combineRgb(0, 0, 0),
+					},
+					options: fixedOptions,
+					callback: () => {
+						/* wired later in UpdateFeedbacks */
+						return false
+					},
+				} as any
+				continue
+			}
 
 			// Build options
 			const allOptions = (setting.options ?? []).map(buildOption)

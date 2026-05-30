@@ -288,7 +288,7 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		if (actions.length === 0) {
 			logger.warn(`No actions found for model "${model}" — settings decoding will use raw IDs`)
 		} else {
-			logger.debug(`Loaded ${actions.length} actions for model "${model}", sectioned=${schema.sectioned}`)
+			logger.debug(`Loaded ${actions.length} actions for model "${model}"`)
 		}
 	}
 

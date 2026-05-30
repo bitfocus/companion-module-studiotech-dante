@@ -40,8 +40,19 @@
 		{
 			"cmd_id": 9,
 			"id": 43,
-			"name": "PL Ch A — Local Power",
+			"name": "PL Local Power",
 			"options": [
+				{
+					"id": "idAdd",
+					"label": "Channel",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Channel A" },
+						{ "id": 1, "label": "Channel B" }
+					],
+					"default": 0,
+					"tooltip": "Select the PL channel"
+				},
 				{
 					"id": "value",
 					"label": "State",
@@ -51,61 +62,26 @@
 						{ "id": 1, "label": "On" }
 					],
 					"default": 0,
-					"tooltip": "Enable or disable local power for Party-Line Channel A"
-				}
-			]
-		},
-		{
-			"cmd_id": 9,
-			"id": 44,
-			"name": "PL Ch B — Local Power",
-			"options": [
-				{
-					"id": "value",
-					"label": "State",
-					"type": "dropdown",
-					"choices": [
-						{ "id": 0, "label": "Off" },
-						{ "id": 1, "label": "On" }
-					],
-					"default": 0,
-					"tooltip": "Enable or disable local power for Party-Line Channel B"
+					"tooltip": "Enable or disable local power for Party-Line"
 				}
 			]
 		},
 		{
 			"cmd_id": 9,
 			"id": 45,
-			"name": "PL Ch A — Auto Null",
+			"name": "PL Auto Null",
+			"value": 1,
 			"options": [
 				{
-					"id": "value",
-					"label": "State",
+					"id": "idAdd",
+					"label": "Channel",
 					"type": "dropdown",
 					"choices": [
-						{ "id": 0, "label": "Off" },
-						{ "id": 1, "label": "On" }
+						{ "id": 0, "label": "Channel A" },
+						{ "id": 1, "label": "Channel B" }
 					],
 					"default": 0,
-					"tooltip": "Trigger Auto Null for Party-Line Channel A"
-				}
-			]
-		},
-		{
-			"cmd_id": 9,
-			"id": 46,
-			"name": "PL Ch B — Auto Null",
-			"options": [
-				{
-					"id": "value",
-					"label": "State",
-					"type": "dropdown",
-					"choices": [
-						{ "id": 0, "label": "Off" },
-						{ "id": 1, "label": "On" }
-					],
-					"default": 0,
-					"tooltip": "Trigger Auto Null for Party-Line Channel B"
+					"tooltip": "Select the PL channel"
 				}
 			]
 		},
@@ -113,8 +89,19 @@
 			"cmd_id": 30,
 			"id": 8,
 			"readonly": true,
-			"name": "Indicator — PL Ch A Active",
+			"name": "Indicator — PL Active",
 			"options": [
+				{
+					"id": "idAdd",
+					"label": "Channel",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Channel A" },
+						{ "id": 1, "label": "Channel B" }
+					],
+					"default": 0,
+					"tooltip": "Select the PL channel"
+				},
 				{
 					"id": "value",
 					"label": "State",
@@ -124,26 +111,7 @@
 						{ "id": 1, "label": "On" }
 					],
 					"default": 1,
-					"tooltip": "Read-only: Party-Line Channel A active status"
-				}
-			]
-		},
-		{
-			"cmd_id": 30,
-			"id": 9,
-			"readonly": true,
-			"name": "Indicator — PL Ch B Active",
-			"options": [
-				{
-					"id": "value",
-					"label": "State",
-					"type": "dropdown",
-					"choices": [
-						{ "id": 0, "label": "Off" },
-						{ "id": 1, "label": "On" }
-					],
-					"default": 1,
-					"tooltip": "Read-only: Party-Line Channel B active status"
+					"tooltip": "Read-only: Party-Line active status"
 				}
 			]
 		},
@@ -151,8 +119,19 @@
 			"cmd_id": 30,
 			"id": 10,
 			"readonly": true,
-			"name": "Indicator — PL Ch A Pin 3",
+			"name": "Indicator — PL Pin 3",
 			"options": [
+				{
+					"id": "idAdd",
+					"label": "Channel",
+					"type": "dropdown",
+					"choices": [
+						{ "id": 0, "label": "Channel A" },
+						{ "id": 1, "label": "Channel B" }
+					],
+					"default": 0,
+					"tooltip": "Select the PL channel"
+				},
 				{
 					"id": "value",
 					"label": "State",
@@ -162,26 +141,7 @@
 						{ "id": 1, "label": "On" }
 					],
 					"default": 0,
-					"tooltip": "Read-only: Party-Line Channel A Pin 3 status"
-				}
-			]
-		},
-		{
-			"cmd_id": 30,
-			"id": 11,
-			"readonly": true,
-			"name": "Indicator — PL Ch B Pin 3",
-			"options": [
-				{
-					"id": "value",
-					"label": "State",
-					"type": "dropdown",
-					"choices": [
-						{ "id": 0, "label": "Off" },
-						{ "id": 1, "label": "On" }
-					],
-					"default": 0,
-					"tooltip": "Read-only: Party-Line Channel B Pin 3 status"
+					"tooltip": "Read-only: Party-Line Pin 3 status"
 				}
 			]
 		}

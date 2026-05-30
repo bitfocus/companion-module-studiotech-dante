@@ -69,32 +69,36 @@ export function UpdateActions(self: ModuleInstance): void {
 		// Only include actions for the currently active model
 		if (model !== activeModel) continue
 
-		// Get the raw action schema to access fixed busCh value
-		const schema = schemas[model]
-		const rawAction = schema?.cmdSchema?.find((a: any) => a.cmd_id === cmdId && a.id === baseId)
+		// Get the raw action schema to access fixed busCh and value properties.
+		// Use schemasRaw (not the normalized schemas) to preserve top-level fields
+		// like `value` that normalization may strip.
+		const rawSchema = schemasRaw[model]
+		const rawAction = rawSchema?.cmdSchema?.find((a: any) => a.cmd_id === cmdId && a.id === baseId)
 
 		wiredActions[actionId] = {
 			...action,
 			callback: async (event: any) => {
 				const ip = self.host
 				const busCh = event.options['busCh'] !== undefined ? event.options['busCh'] : rawAction?.busCh
-				const value = event.options['value']
+				const value = rawAction?.value !== undefined ? rawAction.value : event.options['value']
 				const idAdd = event.options['idAdd'] ?? 0
 				const settingId = baseId + idAdd
 
 				await self.stController.sendAwaitAck(cmdId, busCh, settingId, value, ip)
 			},
-			learn: (event: any) => {
-				const ip = self.host
-				const idAdd = event.options['idAdd'] ?? 0
-				const settingId = baseId + idAdd
-				const busCh = event.options['busCh'] !== undefined ? event.options['busCh'] : rawAction?.busCh
+			...(rawAction?.value === undefined && {
+				learn: (event: any) => {
+					const ip = self.host
+					const idAdd = event.options['idAdd'] ?? 0
+					const settingId = baseId + idAdd
+					const busCh = event.options['busCh'] !== undefined ? event.options['busCh'] : rawAction?.busCh
 
-				const current = self.stController.getSettingValue(ip, cmdId, settingId, busCh)
-				if (current === undefined) return undefined
+					const current = self.stController.getSettingValue(ip, cmdId, settingId, busCh)
+					if (current === undefined) return undefined
 
-				return { ...event.options, value: current }
-			},
+					return { ...event.options, value: current }
+				},
+			}),
 		}
 	}
 

@@ -42,6 +42,7 @@ export type StAction = {
 	name: string
 	options: StActionOption[]
 	busCh?: number // Fixed channel value for actions that don't have a channel option
+	value?: number // Fixed value — action always sends this value, no user input needed
 	readonly?: boolean // If true, entry is feedback-only — no action will be created
 	writeonly?: boolean // If true, entry is action-only — no feedback will be created (device never reports this value back)
 }
@@ -303,6 +304,11 @@ export function formatParsedSetting(setting: ParsedSetting, actions: StAction[])
 
 		// Look for the value option (not busCh or idAdd)
 		const valueOption = action.options?.find((opt) => opt.id === 'value')
+		// For fixed-value actions, fall back to the top-level value property
+		const fixedValue = (action as any).value
+		if (fixedValue !== undefined && valueOption === undefined) {
+			return `${prefix} | ${name}: ${fixedValue}`
+		}
 		if (valueOption?.choices && setting.valueBytes.length === 1) {
 			const choice = valueOption.choices.find((c) => c.id === setting.valueBytes[0])
 			if (choice) {
@@ -662,12 +668,13 @@ export function saveModelJsonPretty(filePath: string, jsonObj: StModelJson): voi
 		// Add other keys in order
 		if ('cmdSchema' in jsonObj) {
 			orderedObj.cmdSchema = jsonObj.cmdSchema.map((entry: any) => {
-				// Enforce key order within each schema entry: cmd_id, id, busCh, name, options
+				// Enforce key order within each schema entry: cmd_id, id, busCh, name, value, options
 				const orderedEntry: any = {}
 				if ('cmd_id' in entry) orderedEntry.cmd_id = entry.cmd_id
 				if ('id' in entry) orderedEntry.id = entry.id
 				if ('busCh' in entry) orderedEntry.busCh = entry.busCh
 				if ('name' in entry) orderedEntry.name = entry.name
+				if ('value' in entry) orderedEntry.value = entry.value
 				if ('options' in entry) orderedEntry.options = entry.options
 				// Copy any remaining keys
 				for (const key of Object.keys(entry)) {
