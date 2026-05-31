@@ -116,7 +116,7 @@
 					"choices": [
 						{ "id": 1, "label": "Push to Talk" },
 						{ "id": 2, "label": "Latching" },
-						{ "id": 3, "label": "Psh to Talk / Tap to Latch" },
+						{ "id": 3, "label": "Push to Talk / Tap to Latch" },
 						{ "id": 4, "label": "Disabled" }
 					],
 					"default": 1,

@@ -114,6 +114,7 @@
 			"name": "Off Intensity",
 			"options": [
 				{
+					"id": "value",
 					"label": "Level",
 					"type": "dropdown",
 					"choices": [
