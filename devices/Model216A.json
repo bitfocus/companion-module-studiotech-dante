@@ -226,7 +226,9 @@
 					"choices": [
 						{ "id": 0, "label": "Off" },
 						{ "id": 1, "label": "Main Button" },
-						{ "id": 2, "label": "Talkback Button" },
+						{ "id": 2, "label": "Talkback Button 1" },
+						{ "id": 3, "label": "Talkback Button 2" },
+						{ "id": 4, "label": "Talkback Button 3" },
 						{ "id": 10, "label": "Main & Talkback Button" }
 					],
 					"default": 0,

@@ -71,6 +71,7 @@
 			"id": 45,
 			"name": "PL Auto Null",
 			"value": 1,
+			"writeonly": true,
 			"options": [
 				{
 					"id": "idAdd",
@@ -119,7 +120,7 @@
 			"cmd_id": 30,
 			"id": 10,
 			"readonly": true,
-			"name": "Indicator — PL Pin 3",
+			"name": "Indicator — PL Auto Null",
 			"options": [
 				{
 					"id": "idAdd",
@@ -141,7 +142,7 @@
 						{ "id": 1, "label": "On" }
 					],
 					"default": 0,
-					"tooltip": "Read-only: Party-Line Pin 3 status"
+					"tooltip": "Read-only: Party-Line Auto-Null Pin 3 status"
 				}
 			]
 		}

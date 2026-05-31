@@ -1,14 +1,15 @@
 ## Companion Module for Studio Technologies Dante Devices
 
-v0.7.3
+### v0.7.4
 
 - Add Model 216A
+- Fixup Model 545DC
 
-v0.7.2
+#### v0.7.2
 
 - Clean up
 
-v0.6.5
+#### v0.6.5
 
 - Added "read-only" property for devices like the 545DC that have indicators.
 

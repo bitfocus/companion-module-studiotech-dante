@@ -638,8 +638,75 @@ export class StController {
 			}
 			// else: duplicate multicast delivery — suppress
 		} else {
-			// Outgoing command echo or unsolicited request from device
+			// Outgoing command echo or unsolicited direct-push from device.
+			// If this cmdId has known schema entries, parse data as [dataLen][id:val pairs]
+			// and update state/feedbacks — the device sends these without a 0x0b wrapper.
+			const data = stPayload.subarray(2, stPayload.length - 1)
+			const hasSchemaEntries = this.actions.some((a) => a.cmd_id === originalCmdId)
+			if (hasSchemaEntries && data.length >= 2) {
+				const dataLen = data[0]
+				const payload = data.subarray(1)
+				if (payload.length >= dataLen && dataLen > 0) {
+					const parsed: ParsedSetting[] = []
+					let q = 0
+					while (q + 1 < dataLen) {
+						const id = payload[q]
+						const valueBytes = [payload[q + 1]]
+						parsed.push({ cmd_id: originalCmdId, id, valueBytes })
+						q += 2
+					}
+					if (parsed.length > 0) {
+						this.applyParsedSettings(srcIp, parsed)
+						return
+					}
+				}
+			}
 			this.logStPayload(srcIp, originalCmdId, msg, stPayload)
+		}
+	}
+
+	/**
+	 * Applies a list of parsed settings to deviceState, logs changes, and triggers feedbacks.
+	 * Shared by the CMD_GET_ALL_SETTINGS/CMD_SETTINGS_PUSH path and the direct-push path.
+	 */
+	private applyParsedSettings(srcIp: string, settings: ParsedSetting[]): void {
+		const state = this.deviceState.get(srcIp) ?? new Map<string, number>()
+		if (!this.deviceState.has(srcIp)) this.deviceState.set(srcIp, state)
+
+		for (const s of settings) {
+			const stateKey = makeSettingId(this.model, s.cmd_id, s.id, s.busCh)
+			const newValue =
+				s.valueBytes.length === 3
+					? (s.valueBytes[0] << 16) | (s.valueBytes[1] << 8) | s.valueBytes[2]
+					: (s.valueBytes[0] ?? 0)
+			const prevValue = state.get(stateKey)
+			const changed = prevValue === undefined || prevValue !== newValue
+
+			state.set(stateKey, newValue)
+
+			const formatted = formatParsedSetting(s, this.actions)
+			if (changed) {
+				logger.info(`RX ${srcIp} | ${formatted}`)
+				if (this.feedbackCallback) {
+					let baseId = s.id
+					const baseAction = this.actions.find((a) => {
+						if (a.cmd_id !== s.cmd_id) return false
+						if (a.id === s.id) return true
+						const idAddOption = a.options?.find((o) => o.id === 'idAdd')
+						if (!idAddOption?.choices) return false
+						const offset = s.id - a.id
+						return offset > 0 && idAddOption.choices.some((c) => c.id === offset)
+					})
+					if (baseAction) baseId = baseAction.id
+					const baseFeedbackKey = makeSettingId(this.model, s.cmd_id, baseId)
+					this.feedbackCallback(baseFeedbackKey)
+					this.feedbackCallback(baseFeedbackKey + '_bool')
+				} else {
+					logger.warn(`feedbackCallback not set — skipping feedback update for ${stateKey}`)
+				}
+			} else {
+				logger.debug(`RX ${srcIp} | ${formatted}`)
+			}
 		}
 	}
 
@@ -677,47 +744,7 @@ export class StController {
 						? parseSettingsResponse(this.model, msg)
 						: parseGetAllSettingsForModel(this.model, msg)
 
-				const prevState = this.deviceState.get(srcIp) ?? new Map<string, number>()
-				const newState = new Map<string, number>(prevState) // copy — update in place
-
-				for (const s of settings) {
-					const stateKey = makeSettingId(this.model, s.cmd_id, s.id, s.busCh)
-					// For RGB colors (3 bytes), pack into single number: (R << 16) | (G << 8) | B
-					const newValue =
-						s.valueBytes.length === 3
-							? (s.valueBytes[0] << 16) | (s.valueBytes[1] << 8) | s.valueBytes[2]
-							: (s.valueBytes[0] ?? 0)
-					const prevValue = prevState.get(stateKey)
-					const changed = prevValue === undefined || prevValue !== newValue
-
-					newState.set(stateKey, newValue)
-
-					const formatted = formatParsedSetting(s, this.actions)
-					if (changed) {
-						logger.info(`RX ${srcIp} | ${formatted}`)
-						// Trigger feedback update — use base key without busCh so it matches the feedback definition ID
-						if (this.feedbackCallback) {
-							let baseId = s.id
-							const baseAction = this.actions.find((a) => {
-								if (a.cmd_id !== s.cmd_id) return false
-								if (a.id === s.id) return true
-								const idAddOption = a.options?.find((o) => o.id === 'idAdd')
-								if (!idAddOption?.choices) return false
-								const offset = s.id - a.id
-								return offset > 0 && idAddOption.choices.some((c) => c.id === offset)
-							})
-							if (baseAction) baseId = baseAction.id
-							const baseFeedbackKey = makeSettingId(this.model, s.cmd_id, baseId)
-							this.feedbackCallback(baseFeedbackKey)
-							this.feedbackCallback(baseFeedbackKey + '_bool')
-						} else {
-							logger.warn(`feedbackCallback not set — skipping feedback update for ${stateKey}`)
-						}
-					} else {
-						logger.debug(`RX ${srcIp} | ${formatted}`)
-					}
-				}
-				this.deviceState.set(srcIp, newState)
+				this.applyParsedSettings(srcIp, settings)
 			} catch (e) {
 				logger.warn(`RX ${srcIp} | ${cmdName} | parse failed: ${e} | ${fullStructure}`)
 			}
@@ -776,7 +803,7 @@ export class StController {
 					const valueBytes = data.subarray(2)
 					const action = this.actions.find((a) => a.cmd_id === cmdId && a.id === settingId)
 					const settingName = action?.name ?? `setting=${toHex(settingId)}`
-					const choices = action?.options?.[0]?.choices
+					const choices = action?.options?.find((o) => o.id === 'value')?.choices
 					const valueNum = valueBytes.length === 1 ? valueBytes[0] : undefined
 					const choiceLabel =
 						choices && valueNum !== undefined ? choices.find((c) => c.id === valueNum)?.label : undefined
