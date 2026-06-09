@@ -15,6 +15,11 @@
 		"lint": "run lint:raw ."
 	},
 	"license": "MIT",
+	"files": [
+		"dist",
+		"devices",
+		"companion"
+	],
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/bitfocus/companion-module-studiotech-dante.git"
