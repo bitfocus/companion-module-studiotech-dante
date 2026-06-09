@@ -6,8 +6,8 @@
 	"scripts": {
 		"postinstall": "husky",
 		"format": "prettier -w .",
-		"package": "run build && companion-module-build",
-		"package:dev": "yarn build && companion-module-build --dev",
+		"package": "yarn build && companion-module-build build-config.cjs",
+		"package:dev": "yarn build && companion-module-build --dev build-config.cjs",
 		"build": "rimraf dist && run build:main",
 		"build:main": "tsc -p tsconfig.build.json",
 		"dev": "tsc -p tsconfig.build.json --watch",
@@ -15,11 +15,6 @@
 		"lint": "run lint:raw ."
 	},
 	"license": "MIT",
-	"files": [
-		"dist",
-		"devices",
-		"companion"
-	],
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/bitfocus/companion-module-studiotech-dante.git"
