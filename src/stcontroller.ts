@@ -45,65 +45,31 @@ export class StController {
 	private readonly rxPort = 8702
 
 	private txSocket: dgram.Socket
-	private rxSocket: dgram.Socket // for receiving responses (8702)
-	private rxMcastSocket: dgram.Socket | null = null // diagnostic: tracks which responses arrive via multicast
-	private mcastDeliveries: Set<string> = new Set() // keys seen on multicast socket this cycle
+	private rxSocket: dgram.Socket
+	private rxMcastSocket: dgram.Socket | null = null
+	private mcastDeliveries: Set<string> = new Set()
 	private pendingAcks: Map<
 		string,
 		{ resolve: (buf: Buffer) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
 	> = new Map()
-	private joinedInterfaces: Set<string> = new Set() // local IPs we've joined multicast on
+	private joinedInterfaces: Set<string> = new Set()
 
-	/** Serializes outgoing commands so each waits for ACK before the next is sent */
 	private sendQueue: Promise<void> = Promise.resolve()
-
-	/** Tracks how many commands are queued/in-flight, to defer requestAllSettings */
 	private pendingCommandCount = 0
-
-	/** Resolves once txSocket is bound and ready to send */
 	private txReady: Promise<void>
-
-	/** Active device model and action definitions for settings decoding */
 	private model: string = ''
 	private actions: StAction[] = []
-
-	/**
-	 * Known state of every setting per device IP.
-	 * Keyed by IP → Map of "${cmdId}/${settingId}" → current value byte.
-	 * Populated on connect via requestAllSettings(), updated on every CMD_SETTINGS_PUSH (0x0b).
-	 * Used to diff incoming pushes (changed = info, unchanged = debug) and for feedbacks.
-	 */
 	private deviceState: Map<string, Map<string, number>> = new Map()
-
-	/**
-	 * IPs that have been verified against the configured model and are allowed
-	 * to receive Studio-T commands. Populated by authorizeDevice() after a
-	 * successful probeDevice() model match, or after multicast discovery.
-	 * _sendAwaitAck() rejects any destIp not in this set.
-	 */
 	private authorizedIps: Set<string> = new Set()
-
-	/** Callbacks registered for Dante 0x0170 device info responses — keyed by usage */
 	private discoveryListeners: Map<string, (device: DeviceInfo) => void> = new Map()
-
-	/** Callback to trigger feedback updates when state changes */
 	private feedbackCallback?: (feedbackId: string) => void
-
-	/** Cache of local interface MAC bytes per destination IP, to avoid repeated OS lookups */
 	private macCache: Map<string, number[]> = new Map()
-
-	/** Tracks session readiness per IP — set for devices that established ConMon, and also
-	 *  for devices that don't require ConMon (useConMon not set), so the check is only done once. */
 	private sessionEstablished: Set<string> = new Set()
-
-	/** Cleanup functions returned by openConMonSession() — call to stop keepalives and close the socket */
 	private _conmonCleanups: Map<string, () => void> = new Map()
 
 	constructor() {
 		logger.info('StController initialized')
 
-		// Send socket — bind to ephemeral port. Responses always go to rxSocket on
-		// port 8702 (Dante hardcodes the response destination port to 8702).
 		this.txSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
 		this.txReady = new Promise<void>((resolve) => {
 			this.txSocket.bind(0, () => {
@@ -115,7 +81,6 @@ export class StController {
 			logger.error(`TX socket error: ${err}`)
 		})
 
-		// Receive socket - bind to all addresses so kernel can deliver multicast packets
 		this.rxSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
 
 		this.rxSocket.on('listening', () => {
@@ -140,10 +105,6 @@ export class StController {
 			}
 		})
 
-		// Bind to wildcard so kernel can deliver multicast packets for joined interfaces.
-		// After binding, eagerly join 224.0.0.231 on every non-loopback IPv4 interface so
-		// that unsolicited CMD_SETTINGS_PUSH (0x0b) packets are not missed before the
-		// first outgoing command triggers the lazy ensureMembershipFor() join.
 		this.rxSocket.bind({ address: '0.0.0.0', port: this.rxPort }, () => {
 			logger.debug(`RX socket bound to 0.0.0.0:${this.rxPort}`)
 			const ifaces = os.networkInterfaces() as Record<string, import('os').NetworkInterfaceInfo[]>
@@ -162,9 +123,6 @@ export class StController {
 			}
 		})
 
-		// Diagnostic multicast socket — bound to the multicast group address so only
-		// multicast-delivered packets arrive here. Any Studio-T response seen on this
-		// socket was sent to 224.0.0.231; responses seen only on rxSocket are unicast.
 		this.rxMcastSocket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
 		this.rxMcastSocket.on('error', (err) => {
 			logger.debug(`RX mcast socket error: ${err.message}`)
@@ -187,7 +145,6 @@ export class StController {
 					`Multicast delivery: ${rinfo.address} cmd:${toHex(originalCmdId)}` +
 						(wasUnicastAlready ? ' (unicast also pending)' : ' (multicast only so far)'),
 				)
-				// Clean up the key after a short delay so we don't accumulate stale entries
 				setTimeout(() => this.mcastDeliveries.delete(key), 500)
 			}
 		})
@@ -235,35 +192,24 @@ export class StController {
 		}
 	}
 
-	/**
-	 * Provide the active device model and action definitions so incoming messages
-	 * can be decoded into human-readable names. Call from main.ts after config load.
-	 */
 	public setModel(model: string, actions: StAction[]): void {
 		this.model = model
 		this.actions = actions
 	}
 
-	/**
-	 * Set callback to trigger when device state changes (for feedbacks).
-	 * Call from main.ts to wire up checkFeedbacks.
-	 */
 	public setFeedbackCallback(callback: (feedbackId: string) => void): void {
 		this.feedbackCallback = callback
 	}
 
-	/** Returns true if the device at the given IP has been authorized to receive commands. */
 	public isDeviceAuthorized(ip: string): boolean {
 		return this.authorizedIps.has(ip)
 	}
 
-	/** Mark an IP as verified and allowed to receive Studio-T commands. */
 	public authorizeDevice(ip: string): void {
 		this.authorizedIps.add(ip)
 		logger.debug(`Authorized device at ${ip}`)
 	}
 
-	/** Remove authorization for an IP (e.g. on config change or model mismatch). */
 	public revokeDevice(ip: string): void {
 		this.authorizedIps.delete(ip)
 		this.deviceState.delete(ip)
@@ -274,23 +220,15 @@ export class StController {
 		logger.debug(`Revoked device at ${ip}`)
 	}
 
-	/**
-	 * Opens a Dante ConMon session for the device if "useConMon": true is set in its
-	 * device JSON. Caches the result so the handshake only runs once per IP.
-	 * Delegates to conmon.ts. Devices without useConMon are marked as ready immediately.
-	 */
 	public async openSession(deviceIp: string): Promise<boolean> {
 		if (this.sessionEstablished.has(deviceIp)) return true
 		const schema = getDeviceSchema(this.model)
 		if (!schema?.useConMon) {
-			// Device does not require ConMon — skip silently
 			this.sessionEstablished.add(deviceIp)
 			return true
 		}
 		const cleanup = await openConMonSession(deviceIp)
 		const success = cleanup !== null
-		// Mark as attempted regardless of outcome — retrying immediately would hit the
-		// same bind error (EADDRINUSE). Devices that don't need ConMon work fine without it.
 		this.sessionEstablished.add(deviceIp)
 		if (success) {
 			this._conmonCleanups.set(deviceIp, cleanup)
@@ -298,12 +236,6 @@ export class StController {
 		return success
 	}
 
-	/**
-	 * Sends a unicast Dante info request to a specific IP and waits for the
-	 * device info response. Returns the DeviceInfo if the device responds within
-	 * timeoutMs, or null if no response. Used to verify a manually configured IP.
-	 * Does NOT require authorization — this is how authorization is established.
-	 */
 	public async probeDevice(ip: string, timeoutMs = 3000): Promise<DeviceInfo | null> {
 		await this.txReady
 		return danteProbeDevice(
@@ -316,23 +248,12 @@ export class StController {
 		)
 	}
 
-	/**
-	 * Send a CMD_GET_ALL_SETTINGS (0x0a) request to the device and store the response
-	 * in deviceState. Returns the raw response buffer for parsing.
-	 */
 	public async requestAllSettings(deviceIp: string): Promise<Buffer> {
 		logger.info(`Requesting all settings from ${deviceIp}`)
 		const response = await this.sendAwaitAck(CMD_GET_ALL_SETTINGS, undefined, undefined, undefined, deviceIp, false)
-		// deviceState is populated by logStPayload when the CMD_GET_ALL_SETTINGS response arrives
 		return response
 	}
 
-	/**
-	 * Discovers Studio Technologies Dante devices on the local network.
-	 *
-	 * Listens for Dante announces on 224.0.0.233:8708, sends unicast info requests
-	 * to each discovered IP, and collects 0x0170 responses via the rxSocket.
-	 */
 	public async discoverDevices(timeoutMs = 5000): Promise<DeviceInfo[]> {
 		const DISCOVERY_KEY = '__discovery__'
 		const foundDevices: DeviceInfo[] = []
@@ -352,16 +273,10 @@ export class StController {
 		}
 	}
 
-	/**
-	 * Requests device firmware version via Studio-T protocol (CMD_GET_FIRMWARE).
-	 * Returns the firmware version string (e.g., "3.01", "2.2", "1.05").
-	 */
 	public async requestFirmwareVersion(deviceIp: string): Promise<string> {
 		logger.info(`Requesting firmware version from ${deviceIp}`)
 		const response = await this.sendAwaitAck(CMD_GET_FIRMWARE, undefined, undefined, undefined, deviceIp, false)
 
-		// Response structure: [header] 0x5a 0x80 [firmware_data] CRC
-		// Firmware data starts at byte 26 (24-byte header + 0x5a + 0x80)
 		const dataStart = 26
 
 		if (response.length < dataStart + 3) {
@@ -369,15 +284,10 @@ export class StController {
 			return 'Unknown'
 		}
 
-		// Firmware format: [unknown_byte, major, minor]
 		const major = response[dataStart + 1]
 		const minor = response[dataStart + 2]
 
-		const minorStr =
-			minor < 10
-				? minor.toString().padStart(2, '0') // e.g. 1 → "01", 5 → "05"
-				: minor.toString() // e.g. 10 → "10"
-
+		const minorStr = minor < 10 ? minor.toString().padStart(2, '0') : minor.toString()
 		const firmware = `${major}.${minorStr}`
 
 		logger.debug(`Firmware version: ${firmware}`)
@@ -427,8 +337,6 @@ export class StController {
 				this._sendAwaitAck(cmdId, busCh, settingId, value, destIp, addLen)
 					.then((buf) => {
 						this.pendingCommandCount--
-						// Only trigger requestAllSettings after a write (SET) command, not a read/poll.
-						// A write always has a value; reads (GET, BUS_GET) never do.
 						if (this.pendingCommandCount === 0 && value !== undefined) {
 							this.requestAllSettings(destIp).catch((err) => {
 								logger.warn(`Failed to refresh settings after command: ${err}`)
@@ -461,18 +369,15 @@ export class StController {
 		const payloadBody: number[] = [0x5a, cmdId & 0xff]
 
 		if (cmdId === CMD_MIC_PRE && busCh !== undefined && settingId !== undefined && value !== undefined) {
-			// Positional format: [0x5a] [0x02] [busCh] [val0] [val1] [val2] ...
-			// Read all positions from deviceState, override the target position with new value.
-			// Also update deviceState optimistically so consecutive CMD_MIC_PRE commands chain correctly.
 			if (!this.deviceState.has(destIp)) this.deviceState.set(destIp, new Map())
 			const ipState = this.deviceState.get(destIp)!
-			const numPositions = 3 // gain, electret/phantom, unknown
+			const numPositions = 3
 			const positions: number[] = []
 			for (let i = 0; i < numPositions; i++) {
 				const stateKey = makeSettingId(this.model, CMD_MIC_PRE, i, busCh)
 				const val = i === settingId ? Number(value) : (ipState.get(stateKey) ?? 0)
 				positions.push(val)
-				ipState.set(stateKey, val) // optimistic update
+				ipState.set(stateKey, val)
 			}
 			payloadBody.push(busCh & 0xff, ...positions)
 		} else {
@@ -498,19 +403,13 @@ export class StController {
 			logger.info(`TX ${destIp} | ${getCommandName(cmdId)}`)
 		}
 
-		// Reject commands to unverified devices — log the would-be packet first at debug
-		// so the bytes are visible even when the device is offline.
 		if (!this.authorizedIps.has(destIp)) {
 			logger.debug(`Packet (not sent — device not authorized) to ${destIp}: ${payloadWithCrc.toString('hex')}`)
 			throw new Error(`Device at ${destIp} is not authorized — verify the IP and model match before sending commands`)
 		}
 
-		// If "useConMon" is set in the device JSON, ensure the Dante ConMon session
-		// (port 8800) is open before sending. openSession() caches the result — the
-		// handshake only runs once per IP. Non-useConMon devices are marked ready immediately.
 		if (!this.sessionEstablished.has(destIp)) {
 			await this.openSession(destIp)
-			// Session failure is non-fatal — many devices respond to Studio-T regardless.
 		}
 
 		// Ensure we are listening for replies on the interface that will receive them
@@ -558,9 +457,6 @@ export class StController {
 
 		const msgType = msg.readUInt16BE(2)
 
-		// ── Dante device info response (0x0170) ──────────────────────────────
-		// These have "Audinate" at offset 16, not "Studio-T" — handle before
-		// the Studio-T signature check below.
 		if (msgType === DANTE_MSG_INFO_RESPONSE && this.discoveryListeners.size > 0) {
 			const device = parseDanteInfoResponse(msg, srcIp)
 			if (device) {
@@ -571,8 +467,6 @@ export class StController {
 						`ModelName="${device.modelName}", ` +
 						`Manufacturer="${device.manufacturer}"`,
 				)
-
-				// Only accept Studio Technologies devices (identified by DeviceID "Studio-T")
 				if (device.name === 'Studio-T') {
 					for (const cb of this.discoveryListeners.values()) {
 						try {
@@ -594,30 +488,19 @@ export class StController {
 		const sig = msg.subarray(16, 24)
 		if (sig.toString('ascii') !== 'Studio-T') return
 
-		// Ignore Studio-T packets from devices we haven't authorized.
-		// This prevents cross-contamination when multiple devices (or multiple
-		// Companion instances) are on the same network — all share the multicast
-		// group 224.0.0.231:8702 and will receive each other's ACKs and pushes.
 		if (!this.authorizedIps.has(srcIp)) {
 			logger.debug(`Ignoring Studio-T packet from unauthorized device ${srcIp}`)
 			return
 		}
 
-		// Payload starts at offset 24
-		// Layout: [0x5a] [cmdId|0x80] [data...] [crc]
 		const stPayload = msg.subarray(24)
 		if (stPayload.length < 2) return
 		if (stPayload[0] !== 0x5a) return
 
-		// Device replies with cmd | 0x80
 		const respCmdId = stPayload[1]
 		const isResponse = (respCmdId & 0x80) !== 0
-		const originalCmdId = respCmdId & 0x7f // strip the response flag
+		const originalCmdId = respCmdId & 0x7f
 
-		// Responses are delivered to both unicast and multicast 224.0.0.231:8702.
-		// With two joined interfaces the rxSocket receives each response twice.
-		// Gate logging and ACK resolution on the first delivery (pending ACK present).
-		// CMD_SETTINGS_PUSH (0x0b) is unsolicited — always log it.
 		if (isResponse) {
 			const key = `${srcIp}:${originalCmdId}`
 			const pending = this.pendingAcks.get(key)
@@ -633,14 +516,9 @@ export class StController {
 				this.logStPayload(srcIp, originalCmdId, msg, stPayload)
 				pending.resolve(msg)
 			} else if (originalCmdId === CMD_SETTINGS_PUSH) {
-				// Unsolicited push — always log
 				this.logStPayload(srcIp, originalCmdId, msg, stPayload)
 			}
-			// else: duplicate multicast delivery — suppress
 		} else {
-			// Outgoing command echo or unsolicited direct-push from device.
-			// If this cmdId has known schema entries, parse data as [dataLen][id:val pairs]
-			// and update state/feedbacks — the device sends these without a 0x0b wrapper.
 			const data = stPayload.subarray(2, stPayload.length - 1)
 			const hasSchemaEntries = this.actions.some((a) => a.cmd_id === originalCmdId)
 			if (hasSchemaEntries && data.length >= 2) {
@@ -665,10 +543,6 @@ export class StController {
 		}
 	}
 
-	/**
-	 * Applies a list of parsed settings to deviceState, logs changes, and triggers feedbacks.
-	 * Shared by the CMD_GET_ALL_SETTINGS/CMD_SETTINGS_PUSH path and the direct-push path.
-	 */
 	private applyParsedSettings(srcIp: string, settings: ParsedSetting[]): void {
 		const state = this.deviceState.get(srcIp) ?? new Map<string, number>()
 		if (!this.deviceState.has(srcIp)) this.deviceState.set(srcIp, state)
@@ -710,29 +584,13 @@ export class StController {
 		}
 	}
 
-	/**
-	 * Decodes and logs a Studio-T response payload.
-	 * Receives both the full msg (for parsers that need the Studio-T header)
-	 * and stPayload (msg.subarray(24), for direct byte access).
-	 *
-	 * stPayload layout:
-	 *   [0]      0x5a  magic
-	 *   [1]      cmdId | 0x80
-	 *   [2..-2]  data bytes
-	 *   [-1]     CRC-8/DVB-S2
-	 */
 	private logStPayload(srcIp: string, cmdId: number, msg: Buffer, stPayload: Buffer): void {
 		const cmdName = getCommandName(cmdId)
-		const data = stPayload.subarray(2, stPayload.length - 1) // strip magic+cmdId header and CRC
-
-		// Payload structure: [cmd:0x8d] [data bytes...] [crc]
+		const data = stPayload.subarray(2, stPayload.length - 1)
 		const respCmdId = stPayload[1]
 		const crc = stPayload[stPayload.length - 1]
 		const fullStructure = `[cmd:${toHex(respCmdId)} data:${data.toString('hex')} crc:${toHex(crc)}]`
 
-		// ── CMD_GET_ALL_SETTINGS (0x0a) and CMD_SETTINGS_PUSH (0x0b) ────────────────
-		// Parse all settings, diff against deviceState, log changed at info / unchanged at debug,
-		// then update deviceState. CMD_GET_ALL_SETTINGS also serves as the initial state population on connect.
 		if (cmdId === CMD_GET_ALL_SETTINGS || cmdId === CMD_SETTINGS_PUSH) {
 			if (!this.model) {
 				logger.info(`RX ${srcIp} | ${cmdName} | ${fullStructure}`)
@@ -743,7 +601,6 @@ export class StController {
 					cmdId === CMD_SETTINGS_PUSH
 						? parseSettingsResponse(this.model, msg)
 						: parseGetAllSettingsForModel(this.model, msg)
-
 				this.applyParsedSettings(srcIp, settings)
 			} catch (e) {
 				logger.warn(`RX ${srcIp} | ${cmdName} | parse failed: ${e} | ${fullStructure}`)
@@ -751,9 +608,7 @@ export class StController {
 			return
 		}
 
-		// ── All other commands ────────────────────────────────────────────────────
 		const decoded = this.decodeStData(cmdId, data)
-		// CMD_BUS_GET (keepalive) is high-frequency noise — log at debug only
 		const logFn = cmdId === CMD_BUS_GET ? logger.debug.bind(logger) : logger.info.bind(logger)
 		if (decoded) {
 			logFn(`RX ${srcIp} | ${cmdName} | ${fullStructure} | ${decoded}`)
@@ -762,25 +617,14 @@ export class StController {
 		}
 	}
 
-	/**
-	 * Attempts to decode the data bytes of a Studio-T response into a
-	 * human-readable string. Returns null to fall back to raw hex.
-	 */
 	private decodeStData(cmdId: number, data: Buffer): string | null {
 		if (data.length === 0) return 'ACK'
-
-		// ── Check for single-byte responses (ACK or error) ──────────
 		if (data.length === 1) {
-			if (data[0] === 0x00) {
-				return 'ACK ok'
-			} else {
-				return `ERROR ${toHex(data[0])}`
-			}
+			if (data[0] === 0x00) return 'ACK ok'
+			return `ERROR ${toHex(data[0])}`
 		}
 
 		switch (cmdId) {
-			// ── CMD_MIC_PRE (0x02): raw preamp echo — positional bytes, no setting IDs ──
-			// Device echoes [busCh][val0][val1]... confirming the applied values.
 			case CMD_MIC_PRE: {
 				const busCh = data[0]
 				const vals = Array.from(data.subarray(1))
@@ -789,10 +633,6 @@ export class StController {
 				return `ch=${busCh} ${vals}`
 			}
 
-			// ── CMD_DEV_SPEC (0x0d): single-byte ACK or echo of applied setting ──
-			// Device sends two CMD_DEV_SPEC packets in response to a set:
-			//   1. ACK:  [status]               (1 byte, 0x00 = ok)
-			//   2. Echo: [busCh] [settingId] [value...]  (confirming what was applied)
 			case CMD_DEV_SPEC: {
 				if (data.length === 1) {
 					return data[0] === 0x00 ? 'ACK ok' : `ACK err=${toHex(data[0])}`
@@ -814,9 +654,7 @@ export class StController {
 				return `raw: ${data.toString('hex')}`
 			}
 
-			// ── CMD_MIC_PRE_BUS (0x12): Multi-byte echo responses ─────────────
 			case CMD_MIC_PRE_BUS: {
-				// Already handled single-byte above, so multi-byte must be echo
 				if (data.length >= 3) {
 					const busCh = data[0]
 					const settingId = data[1]
@@ -833,7 +671,6 @@ export class StController {
 				return null
 			}
 
-			// ── Bus-scoped get/set ────────────────────────────────────────────
 			case CMD_BUS_GET:
 			case CMD_BUS_SET: {
 				if (data.length < 2) return null
@@ -844,7 +681,7 @@ export class StController {
 			}
 
 			default:
-				return null // fall through to raw hex
+				return null
 		}
 	}
 
@@ -882,15 +719,6 @@ export class StController {
 		return crc
 	}
 
-	/**
-	 * Returns the current known value for a setting on a device, or undefined if unknown.
-	 * Use for feedbacks — value is updated on every CMD_SETTINGS_PUSH (0x0b) from the device.
-	 *
-	 * @param ip        Device IP address
-	 * @param cmdId     Command ID (e.g. CMD_DEV_SPEC)
-	 * @param settingId Setting ID (e.g. 0x02 for Control Source)
-	 * @param busCh     Optional bus/channel ID for multi-channel commands
-	 */
 	public getSettingValue(ip: string, cmdId: number, settingId: number, busCh?: number): number | undefined {
 		const key = makeSettingId(this.model, cmdId, settingId, busCh)
 		return this.deviceState.get(ip)?.get(key)

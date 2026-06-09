@@ -1,14 +1,14 @@
 {
 	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
 	"id": "studiotech-dante",
-	"name": "studio tech",
-	"shortname": "ST",
-	"description": "A Companion module for controlling Studio Technologies devices.",
-	"version": "0.7.4",
+	"name": "studiotech-dante",
+	"shortname": "ST Dante",
+	"description": "A Companion module for controlling Studio Technologies Dante devices.",
+	"version": "0.0.0",
 	"type": "connection",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-studiotech-dante.git",
-	"bugs": "https://discourse.checkcheckonetwo.com/c/stream-deck-companion/studio-technologies-dante-module/36",
+	"bugs": "https://github.com/bitfocus/companion-module-studiotech-dante/issues",
 	"maintainers": [
 		{
 			"name": "Andrew Broughton",
@@ -27,5 +27,5 @@
 	"legacyIds": [],
 	"manufacturer": "Studio Technologies",
 	"products": ["ST Dante Products"],
-	"keywords": ["Studio Technologies", "Studio Tech", "Intercom", "Dante"]
+	"keywords": ["Intercom", "Beltpack", "Party-Line", "IFB", "Talkback"]
 }

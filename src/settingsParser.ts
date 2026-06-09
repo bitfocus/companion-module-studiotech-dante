@@ -16,14 +16,10 @@ import {
 
 const logger = createModuleLogger('SettingsParser')
 
-/* ---------------------------------------------------------
- *  TYPES
- * --------------------------------------------------------*/
-
 export type ParsedSetting = {
 	cmd_id: number
 	id: number
-	busCh?: number // Optional: only present for commands with busCh (0x04, 0x12, 0x14)
+	busCh?: number
 	valueBytes: number[]
 }
 
@@ -41,10 +37,10 @@ export type StAction = {
 	id: number
 	name: string
 	options: StActionOption[]
-	busCh?: number // Fixed channel value for actions that don't have a channel option
-	value?: number // Fixed value — action always sends this value, no user input needed
-	readonly?: boolean // If true, entry is feedback-only — no action will be created
-	writeonly?: boolean // If true, entry is action-only — no feedback will be created (device never reports this value back)
+	busCh?: number
+	value?: number
+	readonly?: boolean
+	writeonly?: boolean
 }
 
 export type StModelJson = {
@@ -52,10 +48,6 @@ export type StModelJson = {
 	useConMon?: boolean
 	cmdSchema: StAction[]
 }
-
-/* ---------------------------------------------------------
- *  FORMAT HELPERS
- * --------------------------------------------------------*/
 
 function getRgbIds(model: string): Set<number> {
 	const rgbIds = new Set<number>()
@@ -82,25 +74,15 @@ function getRgbIds(model: string): Set<number> {
 	return rgbIds
 }
 
-/* ---------------------------------------------------------
- *  FIND THE REAL 5A PAYLOAD INDEX
- * --------------------------------------------------------*/
-
 function extractStPayloadIndex(buf: Buffer): number {
 	const sigIndex = buf.indexOf(Buffer.from('Studio-T'))
 	if (sigIndex < 0) throw new Error('No Studio-T signature in packet')
-
 	const payloadIndex = sigIndex + 8
 	if (buf[payloadIndex] !== 0x5a) {
 		throw new Error(`Expected 0x5A after Studio-T, found ${buf[payloadIndex].toString(16)}`)
 	}
-
 	return payloadIndex
 }
-
-/* ---------------------------------------------------------
- *  SECTIONED PARSER
- * --------------------------------------------------------*/
 
 function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSetting[] {
 	const idx = extractStPayloadIndex(buf)
@@ -109,26 +91,16 @@ function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSettin
 		throw new Error('Not a getAllSettings reply')
 	}
 
-	// CMD_GET_ALL_SETTINGS has a total-length byte at idx+2 before the sections; CMD_SETTINGS_PUSH does not.
 	let p = cmdId === CMD_GET_ALL_SETTINGS ? idx + 3 : idx + 2
 	const end = buf.length - 1
 	const out: ParsedSetting[] = []
-
 	const rgbIds = getRgbIds(model)
-
-	// Command IDs that include a busCh byte in their section structure,
-	// followed by a dataLen byte and then id:val pairs.
 	const commandsWithBusCh = [CMD_BUS_SET, CMD_MIC_PRE_BUS, CMD_CHANNEL]
-
-	// Command IDs that include a busCh byte but store raw positional value bytes
-	// rather than id:val pairs (no dataLen byte, no setting IDs).
-	// Format: [cmdLen] [cmdId] [busCh] [val0] [val1] ...
-	const commandsRawValue = [CMD_MIC_PRE] // cmd=0x02
+	const commandsRawValue = [CMD_MIC_PRE]
 
 	while (p + 2 < end) {
 		const cmdLen = buf[p]
 		const sectionCmdId = buf[p + 1]
-
 		const sectionEnd = p + 1 + cmdLen
 		if (sectionEnd > end) break
 
@@ -140,37 +112,25 @@ function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSettin
 		let q: number
 
 		if (isRawValue) {
-			// Structure: [cmdLen] [cmdId] [busCh] [val0] [val1] ...
-			// Build positional map from schema: find all entries for CMD_MIC_PRE (0x02) or
-			// CMD_MIC_PRE_BUS (0x12) with a fixed busCh, sorted by id — each becomes one
-			// positional slot. This makes the remap schema-driven:
-			//   214  (cmd_id=2,  id=0/1) → pos0→(2,0),  pos1→(2,1)
-			//   214A (cmd_id=18, id=1/2) → pos0→(18,1), pos1→(18,2)
-			// Positions with no schema entry are dropped (e.g. unknown 3rd byte).
 			busCh = buf[p + 2]
 			const rawBytes = buf.subarray(p + 3, sectionEnd)
-
 			const schema = getDeviceSchema(model)
 			const micPreEntries = (schema?.cmdSchema ?? [])
 				.filter((a: StAction) => (a.cmd_id === CMD_MIC_PRE || a.cmd_id === CMD_MIC_PRE_BUS) && a.busCh !== undefined)
 				.sort((a: StAction, b: StAction) => a.id - b.id)
-
 			for (let i = 0; i < rawBytes.length; i++) {
 				const entry = micPreEntries[i]
 				if (entry) {
 					out.push({ cmd_id: entry.cmd_id, id: entry.id, busCh, valueBytes: [rawBytes[i]] })
 				}
-				// no entry = unknown positional byte, drop it
 			}
 			p = sectionEnd
 			continue
 		} else if (hasBusCh) {
-			// Structure: [cmdLen] [cmdId] [busCh] [dataLen] [id:val pairs]
 			busCh = buf[p + 2]
 			dataLen = buf[p + 3]
 			q = p + 4
 		} else {
-			// Structure: [cmdLen] [cmdId] [dataLen] [id:val pairs]
 			dataLen = buf[p + 2]
 			q = p + 3
 		}
@@ -181,8 +141,6 @@ function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSettin
 		while (q + 1 < qEnd) {
 			const id = buf[q]
 			let valueBytes: number[]
-
-			// Check if this ID is an RGB colorpicker (needs 3 bytes)
 			if (rgbIds.has(id) && q + 3 < qEnd) {
 				valueBytes = [buf[q + 1], buf[q + 2], buf[q + 3]]
 				q += 4
@@ -190,26 +148,13 @@ function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSettin
 				valueBytes = [buf[q + 1]]
 				q += 2
 			}
-
-			const setting: ParsedSetting = {
-				cmd_id: sectionCmdId,
-				id,
-				valueBytes,
-			}
-			if (busCh !== undefined) {
-				setting.busCh = busCh
-			}
+			const setting: ParsedSetting = { cmd_id: sectionCmdId, id, valueBytes }
+			if (busCh !== undefined) setting.busCh = busCh
 			out.push(setting)
 		}
 
-		// Positional fallback: if the byte we read as dataLen was 0x00 but the section
-		// still contains data bytes, this section likely uses a no-dataLen format where
-		// each byte after cmdId is a raw value at a fixed position (position = id).
-		// Re-parse from p+2 (right after cmdId), treating the "dataLen" byte as id=0.
-		// Only fire if no bytes were consumed by the main loop (q === qStart), to avoid
-		// re-parsing bytes that were already successfully parsed.
 		if (q === qStart && sectionEnd > p + 3) {
-			let pos = hasBusCh ? p + 3 : p + 2 // skip cmdId (and busCh if present)
+			let pos = hasBusCh ? p + 3 : p + 2
 			let posId = 0
 			while (pos < sectionEnd) {
 				const setting: ParsedSetting = { cmd_id: sectionCmdId, id: posId++, valueBytes: [buf[pos++]] }
@@ -224,15 +169,6 @@ function parseGetAllSettings_sectioned(buf: Buffer, model: string): ParsedSettin
 	return out
 }
 
-/* ---------------------------------------------------------
- *  GENERIC SETTINGS RESPONSE PARSER (0x0a get-all + 0x0b unsolicited push)
- * --------------------------------------------------------*/
-
-/**
- * Parses any full settings block regardless of whether the cmdId is 0x0a
- * (response to Get All Settings) or 0x0b (unsolicited push after a set).
- * Both use the same sectioned or flat block layout.
- */
 export function parseSettingsResponse(model: string, buf: Buffer): ParsedSetting[] {
 	const idx = extractStPayloadIndex(buf)
 	const cmdId = buf[idx + 1] & 0x7f
@@ -242,30 +178,18 @@ export function parseSettingsResponse(model: string, buf: Buffer): ParsedSetting
 	return parseGetAllSettings_sectioned(buf, model)
 }
 
-/**
- * Formats a single parsed setting into a human-readable string using action
- * definitions from the device JSON. Falls back to hex IDs when unknown.
- */
 export function formatParsedSetting(setting: ParsedSetting, actions: StAction[]): string {
-	// Try exact match first
 	let action = actions.find((a) => a.cmd_id === setting.cmd_id && a.id === setting.id)
 
-	// If no exact match and id > base id, try to find action with idAdd option
-	// This handles cases like CMD_HEADPHONE (0x05, e.g. Phones Routing) and
-	// CMD_BUTTON_MODE (0x07, e.g. Buttons) where id 0-3 represents channels 1-4
 	if (!action) {
 		const baseAction = actions.find((a) => {
 			if (a.cmd_id !== setting.cmd_id) return false
-			// Check if this action has an idAdd option (indicating channel selection)
 			const idAddOption = a.options?.find((opt) => opt.id === 'idAdd')
 			if (!idAddOption?.choices) return false
-			// Check if the setting.id offset matches one of the idAdd choice IDs
 			const channelOffset = setting.id - a.id
 			return idAddOption.choices.some((c) => c.id === channelOffset)
 		})
-		if (baseAction) {
-			action = baseAction
-		}
+		if (baseAction) action = baseAction
 	}
 
 	const cmdHex = toHex(setting.cmd_id)
@@ -278,59 +202,38 @@ export function formatParsedSetting(setting: ParsedSetting, actions: StAction[])
 				? setting.valueBytes[0]
 				: setting.valueBytes.join(',')
 
-	// Build the prefix: cmd:0x12 ch:0 id:0x01 val:0x14 (ch only for commands with busCh)
 	const busChStr = setting.busCh !== undefined ? ` ch:${setting.busCh}` : ''
 	const prefix = `cmd:${cmdHex}${busChStr} id:${idHex} val:${valHex}`
 
-	// If we have an action with a name and choice label, use it
 	if (action) {
 		let name = action.name
 
-		// If setting has busCh, add channel info to name
 		if (setting.busCh !== undefined) {
 			name = `${name} Ch${setting.busCh + 1}`
-		}
-		// Otherwise, if this action has idAdd, include the idAdd label
-		else {
+		} else {
 			const idAddOption = action.options?.find((opt) => opt.id === 'idAdd')
 			if (idAddOption?.choices) {
 				const channelOffset = setting.id - action.id
 				const idAddChoice = idAddOption.choices.find((c) => c.id === channelOffset)
-				if (idAddChoice) {
-					name = `${name} ${idAddChoice.label}`
-				}
+				if (idAddChoice) name = `${name} ${idAddChoice.label}`
 			}
 		}
 
-		// Look for the value option (not busCh or idAdd)
 		const valueOption = action.options?.find((opt) => opt.id === 'value')
-		// For fixed-value actions, fall back to the top-level value property
 		const fixedValue = (action as any).value
 		if (fixedValue !== undefined && valueOption === undefined) {
 			return `${prefix} | ${name}: ${fixedValue}`
 		}
 		if (valueOption?.choices && setting.valueBytes.length === 1) {
 			const choice = valueOption.choices.find((c) => c.id === setting.valueBytes[0])
-			if (choice) {
-				return `${prefix} | ${name}: ${choice.label} (${valDec})`
-			}
+			if (choice) return `${prefix} | ${name}: ${choice.label} (${valDec})`
 		}
 		return `${prefix} | ${name}: ${valDec}`
 	}
 
-	// No action found - just show the raw values
 	return `${prefix} | Unknown Setting`
 }
 
-/* ---------------------------------------------------------
- *  PARSER DISPATCH WITH AUTO-DETECTION
- * --------------------------------------------------------*/
-
-/**
- * Parses getAllSettings response with automatic format detection.
- *
- * @returns {settings: ParsedSetting[], detectedSectioned: boolean | null}
- */
 export function parseGetAllSettingsWithDetection(
 	model: string,
 	buf: Buffer,
@@ -343,31 +246,16 @@ export function parseGetAllSettingsForModel(model: string, buf: Buffer): ParsedS
 	return parseGetAllSettings_sectioned(buf, model)
 }
 
-/* ---------------------------------------------------------
- *  VALUE → OPTION
- * --------------------------------------------------------*/
-
 function valueBytesToOption(valueBytes: number[]): StActionOption {
 	if (valueBytes.length === 1) {
 		return { id: 'value', label: 'Value', type: 'number', default: valueBytes[0] }
 	}
-
 	if (valueBytes.length === 3) {
 		const [r, g, b] = valueBytes
-		return {
-			id: 'value',
-			label: 'Color',
-			type: 'colorpicker',
-			default: formatRgbColor(r, g, b),
-		}
+		return { id: 'value', label: 'Color', type: 'colorpicker', default: formatRgbColor(r, g, b) }
 	}
-
 	return { id: 'value', label: 'Value', type: 'raw', default: [...valueBytes] }
 }
-
-/* ---------------------------------------------------------
- *  SMART JSON UPDATE
- * --------------------------------------------------------*/
 
 export function updateModelJsonFromSettings(
 	modelJson: StModelJson,
@@ -375,23 +263,15 @@ export function updateModelJsonFromSettings(
 	allModels: Record<string, StModelJson>,
 ): StModelJson {
 	const out = structuredClone(modelJson)
+	if (!out.cmdSchema) out.cmdSchema = []
 
-	// Ensure cmdSchema array exists
-	if (!out.cmdSchema) {
-		out.cmdSchema = []
-	}
-
-	// Sort other models by numeric distance to current model
 	const candidates = Object.values(allModels)
-		.filter((m) => m.model !== modelJson.model) // exclude self
+		.filter((m) => m.model !== modelJson.model)
 		.sort((a, b) => modelDistance(modelJson.model, a.model) - modelDistance(modelJson.model, b.model))
 
 	logger.info(`Updating model: ${modelJson.model}`)
 	logger.debug(`Candidates for inference: ${candidates.map((c) => c.model).join(', ')}`)
 
-	// Pre-scan: for each candidate idAdd base entry, find the maximum sequential
-	// offset the packet contains (even beyond what the reference model knows).
-	// Key: `${cmd_id}_${base_id}`, value: max sequential offset seen in parsed data.
 	const idAddDeferRanges = new Map<string, number>()
 	for (const c of candidates) {
 		for (const baseEntry of c.cmdSchema ?? []) {
@@ -401,12 +281,10 @@ export function updateModelJsonFromSettings(
 			const cmdId = baseEntry.cmd_id
 			const key = `${cmdId}_${baseId}`
 			if (idAddDeferRanges.has(key)) continue
-			// Find the max sequential offset present in the parsed packet for this base
 			const parsedOffsets = parsed
 				.filter((p) => p.cmd_id === cmdId && p.id > baseId)
 				.map((p) => p.id - baseId)
 				.sort((a, b) => a - b)
-			// Walk from 1 upward — stop at first gap
 			let maxSeq = 0
 			for (const off of parsedOffsets) {
 				if (off === maxSeq + 1) maxSeq = off
@@ -419,8 +297,6 @@ export function updateModelJsonFromSettings(
 		}
 	}
 
-	// Pre-compute the set of all busCh values seen per (cmd_id, id) pair across the full
-	// parsed response — used later to decide fixed vs. selectable busCh.
 	const busChSeen = new Map<string, Set<number>>()
 	for (const { cmd_id, id, busCh } of parsed) {
 		if (busCh === undefined) continue
@@ -429,18 +305,11 @@ export function updateModelJsonFromSettings(
 		busChSeen.get(key)!.add(busCh)
 	}
 
-	// -------------------------------------------------------
-	// PASS 1: resolve each parsed entry — exact match, inferred,
-	// idAdd-fold (offset into an already-added base entry), or unknown
-	// -------------------------------------------------------
 	for (const { cmd_id, id, busCh, valueBytes } of parsed) {
-		// 1a. Exact match already in output schema — refresh the default and sync busCh
 		const existingExact = out.cmdSchema.find((a) => a.cmd_id === cmd_id && a.id === id)
 		if (existingExact) {
 			const opt = existingExact.options?.find((o) => o.id === 'value')
 			if (opt) opt.default = valueBytesToOption(valueBytes).default
-
-			// Sync busCh from packet data if the existing entry is missing it
 			const seenBusChValues = busChSeen.get(`${cmd_id}_${id}`)
 			if (seenBusChValues && seenBusChValues.size > 0) {
 				const maxBusCh = Math.max(...seenBusChValues)
@@ -453,16 +322,12 @@ export function updateModelJsonFromSettings(
 			continue
 		}
 
-		// 1b. Check if this id folds into an already-added base entry via idAdd.
-		//     Gate: the offset must actually exist in the reference model's idAdd choices
-		//     to avoid swallowing unrelated same-cmd_id entries (e.g. Sidetone at id=21).
 		const idAddBase = out.cmdSchema.find((a) => {
 			if (a.cmd_id !== cmd_id) return false
 			const idAddOpt = a.options?.find((o) => o.id === 'idAdd')
 			if (!idAddOpt?.choices) return false
 			if (id <= a.id) return false
 			const offset = id - a.id
-			// Only fold if a reference model explicitly lists this offset in its idAdd choices
 			return candidates.some((c) => {
 				const refEntry = c.cmdSchema?.find((r) => r.cmd_id === cmd_id && r.id === a.id)
 				const refIdAdd = refEntry?.options?.find((o) => o.id === 'idAdd')
@@ -491,14 +356,12 @@ export function updateModelJsonFromSettings(
 			continue
 		}
 
-		// 1c. No exact match — try inference from candidate models
 		let action: StAction | undefined
 
 		for (const c of candidates) {
 			const match = c.cmdSchema?.find((a) => a.cmd_id === cmd_id && a.id === id)
 			if (match) {
 				action = structuredClone(match)
-				// Strip any existing "(inferred from Model X)" suffixes before adding our own
 				const baseName = match.name.replace(/\s*\(inferred from Model [^)]+\)/g, '').trim()
 				action.name = `${baseName} (inferred from Model ${c.model})`
 				logger.info(`Inferred cmd_id=${toHex(cmd_id)} id=${toHex(id)} from Model ${c.model} (exact)`)
@@ -506,8 +369,6 @@ export function updateModelJsonFromSettings(
 			}
 		}
 
-		// Check if this id should be deferred to pass 2 —
-		// it's a sequential idAdd offset of a known candidate base entry.
 		if (!action) {
 			let shouldDefer = false
 			for (const c of candidates) {
@@ -531,7 +392,6 @@ export function updateModelJsonFromSettings(
 			if (shouldDefer) continue
 		}
 
-		// Fallback: unknown setting
 		if (!action) {
 			action = {
 				cmd_id,
@@ -542,9 +402,6 @@ export function updateModelJsonFromSettings(
 			if (busCh !== undefined) action.busCh = busCh
 			logger.warn(`Could not infer cmd_id=${toHex(cmd_id)} id=${toHex(id)}`)
 		} else {
-			// ── Fix 1: busCh handling ──────────────────────────────────────
-			// Strip any inherited busCh option from the candidate — we'll re-derive
-			// it from what the packet actually reported for this device.
 			action.options = action.options?.filter((o) => o.id !== 'busCh') ?? []
 			delete action.busCh
 
@@ -552,28 +409,13 @@ export function updateModelJsonFromSettings(
 			if (seenBusChValues && seenBusChValues.size > 0) {
 				const maxBusCh = Math.max(...seenBusChValues)
 				if (maxBusCh === 0) {
-					// Only ever saw busCh=0 → fixed property, not an option
 					action.busCh = 0
 				} else {
-					// Multiple channels observed → selectable option
-					const busChChoices = Array.from({ length: maxBusCh + 1 }, (_, i) => ({
-						id: i,
-						label: `Channel ${i + 1}`,
-					}))
-					action.options.unshift({
-						id: 'busCh',
-						label: 'Channel',
-						type: 'dropdown',
-						choices: busChChoices,
-						default: 0,
-					})
+					const busChChoices = Array.from({ length: maxBusCh + 1 }, (_, i) => ({ id: i, label: `Channel ${i + 1}` }))
+					action.options.unshift({ id: 'busCh', label: 'Channel', type: 'dropdown', choices: busChChoices, default: 0 })
 				}
 			}
 
-			// ── Fix 2: default must exist in choices ───────────────────────
-			// Set the default to the observed value. If that value isn't in the
-			// inherited choices list, the choices are from a structurally different
-			// model and can't be trusted — discard them and fall back to a plain number.
 			const observedDefault = valueBytesToOption(valueBytes).default
 			const valueOpt = action.options?.find((o) => o.id === 'value')
 			if (valueOpt) {
@@ -583,7 +425,6 @@ export function updateModelJsonFromSettings(
 						logger.warn(
 							`Inferred choices for cmd_id=${toHex(cmd_id)} id=${toHex(id)} don't contain observed value ${observedDefault} — discarding inherited choices`,
 						)
-						// Keep label/tooltip but drop choices, switch to plain number
 						valueOpt.type = 'number'
 						delete (valueOpt as any).choices
 					}
@@ -595,18 +436,10 @@ export function updateModelJsonFromSettings(
 		out.cmdSchema.push(action)
 	}
 
-	// -------------------------------------------------------
-	// PASS 2: fold any deferred idAdd offsets whose base entry
-	// is now present in the output schema.
-	// Gate: the offset must either exist in a reference model's choices,
-	// OR the base entry itself was inferred (has idAdd) and the offset
-	// continues sequentially beyond the reference model's known range.
-	// -------------------------------------------------------
 	for (const { cmd_id, id } of parsed) {
 		const alreadyTopLevel = out.cmdSchema.some((a) => a.cmd_id === cmd_id && a.id === id)
 		if (alreadyTopLevel) continue
 
-		// Find a base entry in the output that has idAdd and whose id < this id
 		const idAddBase = out.cmdSchema.find((a) => {
 			if (a.cmd_id !== cmd_id) return false
 			const idAddOpt = a.options?.find((o) => o.id === 'idAdd')
@@ -618,8 +451,6 @@ export function updateModelJsonFromSettings(
 		const idAddOpt = idAddBase.options?.find((o) => o.id === 'idAdd')
 		if (!idAddOpt?.choices || idAddOpt.choices.some((c: any) => c.id === offset)) continue
 
-		// Accept the fold if: a reference model explicitly has this offset,
-		// OR the offsets are strictly sequential from 0 (device has more channels than reference)
 		const refHasOffset = candidates.some((c) => {
 			const refEntry = c.cmdSchema?.find((r) => r.cmd_id === cmd_id && r.id === idAddBase.id)
 			const refIdAdd = refEntry?.options?.find((o) => o.id === 'idAdd')
@@ -630,7 +461,6 @@ export function updateModelJsonFromSettings(
 
 		if (!refHasOffset && !isSequential) continue
 
-		// Inherit label from reference model if available, otherwise generate one
 		let label = `Channel ${offset + 1}`
 		for (const c of candidates) {
 			const refEntry = c.cmdSchema?.find((a) => a.cmd_id === cmd_id && a.id === idAddBase.id)
@@ -651,24 +481,12 @@ export function updateModelJsonFromSettings(
 	return out
 }
 
-/* ---------------------------------------------------------
- *  SAVE
- * --------------------------------------------------------*/
-
 export function saveModelJsonPretty(filePath: string, jsonObj: StModelJson): void {
 	try {
-		// Ensure proper key ordering: model, useConMon (if present), cmdSchema
 		const orderedObj: any = { model: jsonObj.model }
-
-		// Add useConMon key if present (right after model)
-		if ('useConMon' in jsonObj) {
-			orderedObj.useConMon = jsonObj.useConMon
-		}
-
-		// Add other keys in order
+		if ('useConMon' in jsonObj) orderedObj.useConMon = jsonObj.useConMon
 		if ('cmdSchema' in jsonObj) {
 			orderedObj.cmdSchema = jsonObj.cmdSchema.map((entry: any) => {
-				// Enforce key order within each schema entry: cmd_id, id, busCh, name, value, options
 				const orderedEntry: any = {}
 				if ('cmd_id' in entry) orderedEntry.cmd_id = entry.cmd_id
 				if ('id' in entry) orderedEntry.id = entry.id
@@ -676,28 +494,18 @@ export function saveModelJsonPretty(filePath: string, jsonObj: StModelJson): voi
 				if ('name' in entry) orderedEntry.name = entry.name
 				if ('value' in entry) orderedEntry.value = entry.value
 				if ('options' in entry) orderedEntry.options = entry.options
-				// Copy any remaining keys
 				for (const key of Object.keys(entry)) {
 					if (!(key in orderedEntry)) orderedEntry[key] = entry[key]
 				}
 				return orderedEntry
 			})
 		}
-		// Copy any other keys that might exist
 		for (const key of Object.keys(jsonObj)) {
-			if (!(key in orderedObj)) {
-				orderedObj[key] = (jsonObj as any)[key]
-			}
+			if (!(key in orderedObj)) orderedObj[key] = (jsonObj as any)[key]
 		}
 
-		// Custom formatter: keep choice objects compact on one line
 		let json = JSON.stringify(orderedObj, null, 2)
-
-		// Replace expanded choice objects with compact single-line format
-		// Matches: {\n            "id": X,\n            "label": "Y"\n          }
-		// Replaces with: { "id": X, "label": "Y" }
 		json = json.replace(/\{\n\s+"id":\s*(\d+),\n\s+"label":\s*"([^"]*)"\n\s+\}/g, '{ "id": $1, "label": "$2" }')
-
 		fs.writeFileSync(filePath, json + '\n', 'utf8')
 	} catch (e) {
 		logger.error(`File Write Error: ${e}`)

@@ -20,15 +20,9 @@ export type ModuleTypes = InstanceTypes & {
 }
 
 export default class ModuleInstance extends InstanceBase<ModuleTypes> {
-	config!: ModuleConfig // Setup in init()
+	config!: ModuleConfig
 	stController!: StController
-
-	/** Cached discovery results — passed into getConfigFields() so the UI
-	 *  can show the discovered device dropdown on subsequent config opens. */
 	private discoveredDevices: DeviceInfo[] = []
-
-	/** Currently active model — resolved once in syncModel() and cached here
-	 *  so UpdateActions, UpdateFeedbacks etc. don't each call resolveModel independently. */
 	activeModel: string = ''
 
 	constructor(internal: unknown) {
@@ -41,31 +35,17 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 			this.stController = new StController()
 		}
 		this.updateStatus(InstanceStatus.Connecting, 'Discovering devices...')
-
-		// Wire feedback callback so stController can trigger feedback updates
 		this.stController.setFeedbackCallback((feedbackId: string) => {
 			this.checkFeedbacks(feedbackId)
 		})
-
-		// Start discovery in the background — all model resolution, schema sync,
-		// and UI updates happen inside runDiscovery() once the device list is known.
 		this.runDiscovery().catch((e) => {
 			logger.error(`Discovery failed: ${e}`)
 		})
 	}
 
-	/**
-	 * Run device discovery, then resolve the model and update all UI.
-	 * - If discovery finds devices, resolveModel picks from those.
-	 * - Only if the list is empty do we fall back to the manual config selection.
-	 * All actions/feedbacks/variables are built after the model is known.
-	 */
 	private async runDiscovery(): Promise<void> {
 		logger.info('Starting device discovery...')
-
 		this.discoveredDevices = await this.stController.discoverDevices()
-
-		// Determine effective model — from discovered devices first, manual config only as fallback
 		let effectiveModel: string
 		if (this.discoveredDevices.length === 0) {
 			if (this.config.deviceMac) {
@@ -85,15 +65,9 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 			for (const d of this.discoveredDevices) {
 				logger.info(`  - Model ${d.model} ${d.manufacturer ?? ''} @ ${d.ip}`)
 			}
-
-			// Authorize all discovered devices so firmware requests can proceed.
-			// verifyAuthorization (called below) will revoke any that don't match
-			// the current config selection.
 			for (const device of this.discoveredDevices) {
 				this.stController.authorizeDevice(device.ip)
 			}
-
-			// Request firmware version from each discovered device
 			for (const device of this.discoveredDevices) {
 				try {
 					const firmware = await this.stController.requestFirmwareVersion(device.ip)
@@ -114,15 +88,9 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 			}
 		}
 
-		// Sync model schema to controller
 		this.syncModel(effectiveModel)
-
-		// Verify that the currently configured host+model is valid now that
-		// discovery results are known. This is the same check configUpdated uses.
 		const targetHost = this.host
 		await this.verifyAuthorization('', targetHost)
-
-		// Build all UI now that model and authorization state are known
 		this.updateActions()
 		this.updateFeedbacks()
 		this.updateVariableDefinitions()
@@ -131,7 +99,6 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		logger.info('Device discovery complete')
 	}
 
-	// When module gets deleted
 	async destroy(): Promise<void> {
 		this.stController?.close()
 		logger.debug('destroy')
@@ -142,35 +109,15 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		this.config = config
 		const effectiveModel = resolveModel(config, this.discoveredDevices)
 		this.syncModel(effectiveModel)
-
-		// Clear variables immediately — the new selection isn't authorized yet.
-		// They'll be repopulated below once verifyAuthorization completes.
 		this.updateVariableValues()
-
 		const newHost = this.host
-
-		// Re-verify authorization on every config change (model or IP).
-		// This handles switching from a valid device to an invalid one and back.
 		await this.verifyAuthorization(previousHost, newHost)
-
-		// Rebuild UI after authorization state is settled
 		this.updateActions()
 		this.updateFeedbacks()
 		this.updateVariableDefinitions()
 		this.updateVariableValues()
 	}
 
-	/**
-	 * Re-evaluates whether the current config is authorized to send commands.
-	 *
-	 * Auto mode (deviceMac set):
-	 *   - Find the discovered device with matching MAC → get its current IP
-	 *   - Revoke the previous IP, authorize the new IP
-	 *   - If MAC not found in discovery, revoke and block
-	 *
-	 * Manual mode (deviceMac empty):
-	 *   - Check discovered list by IP+model match, or probe directly
-	 */
 	private async verifyAuthorization(previousHost: string, newHost: string): Promise<void> {
 		if (!newHost) {
 			if (previousHost) this.stController.revokeDevice(previousHost)
@@ -228,7 +175,6 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 			return
 		}
 
-		// IP not in discovered list — probe it directly via Dante
 		logger.info(`${newHost} not in discovered list — probing`)
 		if (previousHost && previousHost !== newHost) this.stController.revokeDevice(previousHost)
 		this.stController.revokeDevice(newHost)
@@ -253,17 +199,10 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		}
 	}
 
-	/**
-	 * Fetches all settings from the device. If no schema exists for the model,
-	 * creates one from the response and reloads the schema cache.
-	 */
 	private async fetchSettingsAndEnsureSchema(model: string, ip: string): Promise<void> {
 		try {
 			await this.stController.requestAllSettings(ip)
-
 			if (!getDeviceSchema(model)) {
-				// No schema exists — do NOT auto-create one here.
-				// The user must run "GLOBAL: Get All Settings" to create it.
 				logger.warn(`No schema found for Model ${model} — run "GLOBAL: Get All Settings" to create one`)
 				return
 			}
@@ -272,7 +211,6 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		}
 	}
 
-	/** Loads the device JSON for the given model, caches it as activeModel, and pushes it to the controller. */
 	private syncModel(model: string): void {
 		this.activeModel = model
 		const schema = getDeviceSchema(model)
@@ -296,12 +234,10 @@ export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 		return GetConfigFields(this.discoveredDevices)
 	}
 
-	/** Returns the effective host IP, resolved from MAC→IP via discoveredDevices (auto) or config.host (manual). */
 	get host(): string {
 		return resolveHost(this.config, this.discoveredDevices)
 	}
 
-	/** Returns discovered devices for use in actions/config */
 	get devices(): DeviceInfo[] {
 		return this.discoveredDevices
 	}

@@ -1,7 +1,7 @@
 /**
  * build-commands.ts
- * - Uses centralized device schema cache from config.ts
- * - Produces Companion action definitions and feedbacks
+ * Uses centralized device schema cache from config.ts
+ * Produces Companion action definitions and feedbacks
  */
 
 import {
@@ -12,10 +12,6 @@ import {
 } from '@companion-module/base'
 import { makeSettingId } from './types.js'
 import { getDeviceSchemas } from './config.js'
-
-/* ----------------------------- */
-/* ------ Option Builder ------- */
-/* ----------------------------- */
 
 function buildOption(o: any): any {
 	const base = {
@@ -52,10 +48,6 @@ function buildOption(o: any): any {
 	}
 }
 
-/* ----------------------------- */
-/* --------- Actions ----------- */
-/* ----------------------------- */
-
 export function buildActions(): CompanionActionDefinitions {
 	const schemas = getDeviceSchemas()
 	const actions: CompanionActionDefinitions = {}
@@ -65,21 +57,15 @@ export function buildActions(): CompanionActionDefinitions {
 		if (!Array.isArray(cmdSchema)) continue
 
 		for (const a of cmdSchema) {
-			// Skip read-only entries — they are feedback-only (indicators, status)
 			if (a.readonly === true) continue
-
 			const actionId = makeSettingId(model, a.cmd_id, a.id)
-
-			// Fixed-value actions: keep idAdd/busCh selectors but drop the value option
 			const allBuiltOptions = (a.options ?? []).map(buildOption)
 			const options = a.value !== undefined ? allBuiltOptions.filter((o: any) => o.id !== 'value') : allBuiltOptions
 
 			const action: CompanionActionDefinition = {
 				name: `[Model${model}] ${a.name}`,
 				options,
-				callback: async () => {
-					/* wired later in UpdateActions */
-				},
+				callback: async () => {},
 			}
 
 			actions[actionId] = action
@@ -89,15 +75,6 @@ export function buildActions(): CompanionActionDefinitions {
 	return actions
 }
 
-/* ----------------------------- */
-/* --------- Feedbacks --------- */
-/* ----------------------------- */
-
-/**
- * Returns true if the setting's value option represents a boolean (on/off) choice:
- * - type 'checkbox', OR
- * - a 2-choice dropdown where one label is "off" and the other is "on"
- */
 function isBooleanDropdown(setting: any): boolean {
 	const valueOpt = setting.options?.find((o: any) => o.id === 'value')
 	if (!valueOpt) return false
@@ -117,12 +94,9 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 		if (!Array.isArray(cmdSchema)) continue
 
 		for (const setting of cmdSchema) {
-			// Skip write-only entries — they are action-only (device never reports value back)
 			if (setting.writeonly === true) continue
-
 			const baseFeedbackId = makeSettingId(model, setting.cmd_id, setting.id)
 
-			// Fixed-value entries: single boolean feedback — true when current value matches the fixed value
 			if (setting.value !== undefined) {
 				const fixedOptions = (setting.options ?? [])
 					.map(buildOption)
@@ -137,21 +111,13 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 					},
 					options: fixedOptions,
 					callback: () => {
-						/* wired later in UpdateFeedbacks */
 						return false
 					},
 				} as any
 				continue
 			}
-
-			// Build options
 			const allOptions = (setting.options ?? []).map(buildOption)
-
-			// Filter out 'value' option for value feedback (keep only busCh/idAdd)
 			const valueOptions = allOptions.filter((opt: any) => opt.id !== 'value')
-
-			// Add a checkbox option to return label instead of value
-			// (not applicable for colorpicker settings — they have no discrete choices)
 			const isColorSetting = setting.options?.some((o: any) => o.id === 'value' && o.type === 'colorpicker')
 			if (!isColorSetting) {
 				valueOptions.push({
@@ -163,24 +129,19 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 				})
 			}
 
-			// Value feedback for all settings (appears in Variables list)
 			const valueFeedback: any = {
 				type: 'value',
 				name: `[Model${model}] ${setting.name}`,
 				options: valueOptions,
 				callback: () => {
-					/* wired later in UpdateFeedbacks */
 					return 0
 				},
 			}
 
 			feedbacks[baseFeedbackId] = valueFeedback
 
-			// Boolean feedback for Off/On dropdowns — additional feedback for button coloring
 			if (isBooleanDropdown(setting)) {
 				const boolFeedbackId = `${baseFeedbackId}_bool`
-
-				// Options without 'value' (busCh/idAdd selectors only, if present)
 				const boolOptions = allOptions.filter((opt: any) => opt.id !== 'value')
 
 				const boolFeedback: any = {
