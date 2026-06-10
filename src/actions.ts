@@ -17,10 +17,6 @@ export function UpdateActions(self: ModuleInstance): void {
 
 	const activeModel = self.activeModel
 
-	// ---------------------------------------------
-	// ✅ GLOBAL: GET ALL SETTINGS (AUTO JSON UPDATE) — Dev Mode only
-	// ---------------------------------------------
-
 	if (self.config.devMode) {
 		wiredActions['global_getAllSettings'] = {
 			name: 'GLOBAL: Get All Settings',
@@ -59,19 +55,11 @@ export function UpdateActions(self: ModuleInstance): void {
 		}
 	}
 
-	// ---------------------------------------------
-	// ✅ BUILD PER-SETTING ACTIONS (FILTERED BY ACTIVE MODEL)
-	// ---------------------------------------------
-
 	for (const [actionId, action] of Object.entries(rawActions)) {
 		const { model, cmdId, baseId } = parseSettingId(actionId)
 
-		// Only include actions for the currently active model
 		if (model !== activeModel) continue
 
-		// Get the raw action schema to access fixed busCh and value properties.
-		// Use schemasRaw (not the normalized schemas) to preserve top-level fields
-		// like `value` that normalization may strip.
 		const rawSchema = schemasRaw[model]
 		const rawAction = rawSchema?.cmdSchema?.find((a: any) => a.cmd_id === cmdId && a.id === baseId)
 
@@ -102,9 +90,6 @@ export function UpdateActions(self: ModuleInstance): void {
 		}
 	}
 
-	// ---------------------------------------------
-	// ✅ MIC KILL (ONLY IF ACTIVE MODEL SUPPORTS IT)
-	// ---------------------------------------------
 	const activeSchema = schemas[activeModel]
 	if (activeSchema) {
 		const supportsMicKill = (activeSchema.cmdSchema ?? []).some((a: any) => a.name.includes('Kill'))

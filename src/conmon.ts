@@ -4,14 +4,8 @@ import { getMacForDestination, getLocalAddressForDestination } from './dante.js'
 
 const logger = createModuleLogger('ConMon')
 
-/** Coalesces concurrent openConMonSession calls per IP */
 const _conmonPending = new Map<string, Promise<(() => void) | null>>()
 
-/**
- * Opens a Dante ConMon session with the device on port 8800.
- * Only needed for devices with "useConMon": true in their device JSON.
- * Returns a cleanup function to stop keepalives and close the socket, or null on failure.
- */
 export async function openConMonSession(deviceIp: string, timeoutMs = 3000): Promise<(() => void) | null> {
 	const pending = _conmonPending.get(deviceIp)
 	if (pending) return pending
@@ -59,7 +53,6 @@ async function _doConMonSession(deviceIp: string, timeoutMs: number): Promise<((
 		})
 
 		sock.on('message', (msg: Buffer) => {
-			// Device ACK: type byte 0x20 at offset 3
 			if (!settled && msg.length >= 4 && msg[0] === 0x12 && msg[3] === 0x20) {
 				settled = true
 				clearTimeout(timer)

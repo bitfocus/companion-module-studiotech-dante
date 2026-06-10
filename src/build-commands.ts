@@ -153,7 +153,6 @@ export function buildFeedbacks(): CompanionFeedbackDefinitions {
 					},
 					options: boolOptions,
 					callback: () => {
-						/* wired later in UpdateFeedbacks */
 						return false
 					},
 				}

@@ -6,68 +6,39 @@ import type { DeviceInfo } from './types.js'
 const logger = createModuleLogger('Config')
 
 export type ModuleConfig = JsonObject & {
-	/** MAC of the selected discovered device (e.g. "00:1d:c1:9b:a6:cd"), or '' for manual mode */
 	deviceMac: string
-	/** Manual IP address — only used when deviceMac is '' */
 	host: string
-	/** Manual model selection — only used when deviceMac is '' */
 	activeModel: string
-	/** Enable parsing of unsupported ST devices */
 	devMode: boolean
 }
 
-// ============================================================================
-// CENTRALIZED DEVICE SCHEMA CACHE
-// ============================================================================
-// All device JSON files are loaded once into memory here. Other modules should
-// use getDevicesFolder(), getDeviceSchemas(), and getDeviceSchema() instead of
-// reading files directly. Call reloadDeviceSchemas() after writing to a file.
-// ============================================================================
-
-/**
- * Determines the correct devices folder path with fallback support.
- * Checks primary path first, then fallback, then throws error if neither exists.
- */
 function resolveDevicesFolder(): string {
 	const primaryPath = path.join(import.meta.dirname, '../devices')
 	const fallbackPath = path.join(import.meta.dirname, './devices')
 
-	// Check primary path
 	if (fs.existsSync(primaryPath)) {
 		logger.debug(`Using devices folder: ${primaryPath}`)
 		return primaryPath
 	}
 
-	// Check fallback path
 	if (fs.existsSync(fallbackPath)) {
 		logger.warn(`Primary devices folder not found, using fallback: ${fallbackPath}`)
 		return fallbackPath
 	}
 
-	// Neither path exists - fatal error
 	const errorMsg = `Devices folder not found!\nTried:\n  - ${primaryPath}\n  - ${fallbackPath}\nModule cannot continue without device schemas.`
 	logger.error(errorMsg)
 	throw new Error(errorMsg)
 }
 
-// Resolve the devices folder path (with existence check and fallback)
 const devicesFolder = resolveDevicesFolder()
 
-// In-memory cache of all device schemas, keyed by model number
 let deviceSchemasCache: Record<string, any> | null = null
 
-/**
- * Returns the absolute path to the devices folder.
- * Use this instead of redefining the path in every file.
- */
 export function getDevicesFolder(): string {
 	return devicesFolder
 }
 
-/**
- * Loads all device JSON files from the devices folder into memory.
- * This should only be called once at initialization, or after a file is written.
- */
 function loadDeviceSchemas(): Record<string, any> {
 	const schemas: Record<string, any> = {}
 	try {
@@ -88,10 +59,6 @@ function loadDeviceSchemas(): Record<string, any> {
 	return schemas
 }
 
-/**
- * Returns all device schemas from the cache.
- * Initializes the cache on first call.
- */
 export function getDeviceSchemas(): Record<string, any> {
 	if (!deviceSchemasCache) {
 		deviceSchemasCache = loadDeviceSchemas()
@@ -99,27 +66,16 @@ export function getDeviceSchemas(): Record<string, any> {
 	return deviceSchemasCache
 }
 
-/**
- * Returns a specific device schema by model number.
- * Returns undefined if the model doesn't exist.
- */
 export function getDeviceSchema(model: string): any {
 	const schemas = getDeviceSchemas()
 	return schemas[model]
 }
 
-/**
- * Reloads all device schemas from disk.
- * Call this after writing to a device JSON file.
- */
 export function reloadDeviceSchemas(): void {
 	logger.info('Reloading device schemas from disk...')
 	deviceSchemasCache = loadDeviceSchemas()
 }
 
-/**
- * Returns a list of available model numbers, sorted.
- */
 function loadAvailableModels(): string[] {
 	const schemas = getDeviceSchemas()
 	return Object.keys(schemas).sort()
@@ -128,8 +84,6 @@ function loadAvailableModels(): string[] {
 export function GetConfigFields(discoveredDevices: DeviceInfo[] = []): SomeCompanionConfigField[] {
 	const models = loadAvailableModels()
 
-	// Dropdown id is the device MAC — stable across IP changes.
-	// Empty id = Manual mode.
 	const deviceChoices = [
 		{ id: '', label: 'Manual (enter IP + model below)' },
 		...discoveredDevices.map((d) => ({
@@ -139,8 +93,6 @@ export function GetConfigFields(discoveredDevices: DeviceInfo[] = []): SomeCompa
 	]
 
 	return [
-		// ── Device selection dropdown ────────────────────────────────────────
-		// Stores the MAC so re-discovery with a changed IP still matches.
 		{
 			type: 'dropdown',
 			id: 'deviceMac',
@@ -150,8 +102,6 @@ export function GetConfigFields(discoveredDevices: DeviceInfo[] = []): SomeCompa
 			choices: deviceChoices,
 			tooltip: 'Select an auto-discovered Studio Technologies device, or choose Manual to enter an IP address.',
 		},
-
-		// ── Manual IP entry — only visible in manual mode ────────────────────
 		{
 			type: 'textinput',
 			id: 'host',
@@ -162,8 +112,6 @@ export function GetConfigFields(discoveredDevices: DeviceInfo[] = []): SomeCompa
 			isVisibleExpression: `!$(options:deviceMac)`,
 			tooltip: 'Enter the IP address of the device manually.',
 		},
-
-		// ── Manual model selector — only visible in manual mode ──────────────
 		{
 			type: 'dropdown',
 			id: 'activeModel',
@@ -177,8 +125,6 @@ export function GetConfigFields(discoveredDevices: DeviceInfo[] = []): SomeCompa
 			isVisibleExpression: `!$(options:deviceMac)`,
 			tooltip: 'Select which Studio Technologies model is active for actions and feedbacks.',
 		},
-
-		// ── Dev Mode ─────────────────────────────────────────────────────────
 		{
 			type: 'checkbox',
 			id: 'devMode',
@@ -190,11 +136,6 @@ export function GetConfigFields(discoveredDevices: DeviceInfo[] = []): SomeCompa
 	]
 }
 
-/**
- * Returns the effective host IP.
- * Auto mode (deviceMac set): finds the current IP of the discovered device with that MAC.
- * Manual mode (deviceMac empty): returns the manually entered host IP.
- */
 export function resolveHost(config: ModuleConfig, discoveredDevices: DeviceInfo[]): string {
 	if (config.deviceMac) {
 		const device = discoveredDevices.find((d) => d.mac === config.deviceMac)
@@ -203,11 +144,6 @@ export function resolveHost(config: ModuleConfig, discoveredDevices: DeviceInfo[
 	return String(config.host ?? '')
 }
 
-/**
- * Returns the effective model.
- * Auto mode: uses the model from the discovered device matching the stored MAC.
- * Manual mode: uses the manually selected activeModel.
- */
 export function resolveModel(config: ModuleConfig, discoveredDevices: DeviceInfo[]): string {
 	if (config.deviceMac) {
 		const device = discoveredDevices.find((d) => d.mac === config.deviceMac)

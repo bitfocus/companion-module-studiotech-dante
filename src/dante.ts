@@ -5,13 +5,9 @@ import type { DeviceInfo } from './types.js'
 
 const logger = createModuleLogger('Dante')
 
-// ─── Dante discovery constants ────────────────────────────────────────────────
-
-/** Dante device info request message type (sent to port 8700) */
 const DANTE_MSG_INFO_REQUEST = 0x0020
-/** Dante device info response message type (received on port 8702) */
 export const DANTE_MSG_INFO_RESPONSE = 0x0170
-const DANTE_INFO_MIN_LEN = 0xcc + 64 // 268 bytes — need full model field
+const DANTE_INFO_MIN_LEN = 0xcc + 64
 
 function buildDanteInfoRequest(): Buffer {
 	const buf = Buffer.alloc(32, 0)
@@ -32,7 +28,6 @@ function buildDanteInfoRequest(): Buffer {
 	return buf
 }
 
-/** Returns the first non-loopback MAC as a 6-byte Buffer, or zeros. */
 function getFirstLocalMac(): Buffer {
 	try {
 		const ifaces = os.networkInterfaces()
@@ -66,15 +61,13 @@ export function parseDanteInfoResponse(msg: Buffer, srcIp: string): DeviceInfo |
 	const macBytes = [eui64[0], eui64[1], eui64[2], eui64[5], eui64[6], eui64[7]]
 	const mac = macBytes.map((b) => b.toString(16).padStart(2, '0')).join(':')
 
-	const name = readStr(0x20, 31) // Dante device label (can be up to 31 chars per Dante spec)
-	const manufacturer = readStr(0x4c, 64) // e.g. "Studio Technologies, Inc."
+	const name = readStr(0x20, 31)
+	const manufacturer = readStr(0x4c, 64)
 	const modelRaw = readStr(0xcc, 64)
 	const danteFirmware = `${msg[0x18]}.${msg[0x19]}`
 
 	if (!modelRaw) return null
 
-	// Extract just the model number/code (e.g. "Model 391 Alerting Unit" → "391")
-	// Strip "Model " prefix, then take only the first word (the model number)
 	const model = modelRaw
 		.replace(/^Model\s+/i, '')
 		.trim()
@@ -91,11 +84,6 @@ export function parseDanteInfoResponse(msg: Buffer, srcIp: string): DeviceInfo |
 	}
 }
 
-/**
- * Returns the MAC address bytes of the local interface used to route to destIp.
- * Uses a temporary UDP connect to let the OS select the outgoing interface,
- * then finds the matching MAC from os.networkInterfaces().
- */
 export async function getMacForDestination(destIp: string): Promise<number[]> {
 	return new Promise<number[]>((resolve, reject) => {
 		const tmp = dgram.createSocket('udp4')
@@ -132,10 +120,6 @@ export async function getMacForDestination(destIp: string): Promise<number[]> {
 	})
 }
 
-/**
- * Returns the local IP address used by the OS to route to destIp.
- * Uses a temporary UDP socket connect to let the OS select the outgoing interface.
- */
 export async function getLocalAddressForDestination(destIp: string): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		const tmp = dgram.createSocket('udp4')
@@ -149,7 +133,6 @@ export async function getLocalAddressForDestination(destIp: string): Promise<str
 			}
 		})
 
-		// Use an arbitrary port for connect; we only need the kernel to assign a local address.
 		tmp.connect(9, destIp, () => {
 			try {
 				const addr = tmp.address() as { address: string }
@@ -170,15 +153,6 @@ export async function getLocalAddressForDestination(destIp: string): Promise<str
 	})
 }
 
-/**
- * Listens for Dante device announces on the local network and sends unicast
- * info requests to each discovered IP. Responses arrive on the caller's rxSocket
- * via handleIncoming() → discoveryListeners.
- *
- * @param txSocket - The socket to use for sending discovery requests
- * @param ensureMembership - Callback to ensure multicast membership before querying
- * @param timeoutMs - How long to listen for announces before resolving
- */
 export async function discoverDevices(
 	txSocket: dgram.Socket,
 	ensureMembership: (destIp: string) => Promise<void>,
@@ -219,7 +193,6 @@ export async function discoverDevices(
 
 		announceSocket.on('message', (msg, rinfo) => {
 			const srcIp = rinfo.address
-			// Validate it's a Dante announce (magic 0xfffe + "Audinate" at offset 16)
 			if (msg.length < 24) return
 			if (msg.readUInt16BE(0) !== 0xfffe) return
 			if (msg.subarray(16, 24).toString('ascii') !== 'Audinate') return
@@ -228,9 +201,6 @@ export async function discoverDevices(
 			queriedIps.add(srcIp)
 			logger.debug(`Announce from ${srcIp} — sending unicast query`)
 
-			// Join 224.0.0.231 on the interface that routes to this device BEFORE sending
-			// the query. The device multicasts its 0x0170 response to 224.0.0.231:8702
-			// in addition to unicasting it — rxSocket must be a member to receive it.
 			const sendQuery = async () => {
 				await ensureMembership(srcIp)
 				const query = buildDanteInfoRequest()
@@ -242,10 +212,6 @@ export async function discoverDevices(
 		})
 
 		announceSocket.bind(DANTE_ANNOUNCE_PORT, () => {
-			// Join 224.0.0.233 on every non-loopback IPv4 interface so that announces
-			// are received regardless of which interface the device is on.
-			// On Windows with multiple interfaces (e.g. Hyper-V + LAN), the OS default
-			// multicast interface may not be the one connected to the Dante network.
 			const ifaces = os.networkInterfaces()
 			for (const addrs of Object.values(ifaces)) {
 				for (const addr of addrs ?? []) {
@@ -268,19 +234,6 @@ export async function discoverDevices(
 	})
 }
 
-// ─── Device probe ─────────────────────────────────────────────────────────────
-
-/**
- * Sends a unicast Dante info request to a specific IP and waits for the device info
- * response. Used to verify a manually configured IP.
- *
- * @param txSocket         Bound socket to send the query from
- * @param registerListener Register a callback (keyed) to receive parsed DeviceInfo responses
- * @param removeListener   Remove a previously registered listener by key
- * @param ensureMembership Ensure multicast membership on the outgoing interface
- * @param ip               Target device IP
- * @param timeoutMs        Timeout in milliseconds
- */
 export async function probeDevice(
 	txSocket: dgram.Socket,
 	registerListener: (key: string, cb: (device: DeviceInfo) => void) => void,

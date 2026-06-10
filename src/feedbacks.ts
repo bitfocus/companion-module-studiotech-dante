@@ -3,9 +3,6 @@ import { buildFeedbacks } from './build-commands.js'
 import { getDeviceSchemas } from './config.js'
 import { parseSettingId, getNormalizedSchemas, findActionForSetting } from './types.js'
 
-/**
- * Helper function to get label from choices based on value
- */
 function getLabelForValue(
 	schemas: Record<string, { model: string; cmdSchema: any[] }>,
 	model: string,
@@ -16,11 +13,9 @@ function getLabelForValue(
 	const setting = findActionForSetting(schemas, model, cmdId, settingId)
 	if (!setting || !Array.isArray(setting.options)) return value
 
-	// Find the 'value' option which contains the choices
 	const valueOption = setting.options.find((opt: any) => opt.id === 'value')
 	if (!valueOption || !Array.isArray(valueOption.choices)) return value
 
-	// Find the choice with matching id
 	const choice = valueOption.choices.find((c: any) => c.id === value)
 	return choice?.label ?? value
 }
@@ -35,22 +30,14 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 	const schemas = getNormalizedSchemas(schemasRaw)
 	const wiredFeedbacks: any = {}
 
-	// Get the active model from the cached value set by syncModel()
 	const activeModel = self.activeModel
 
-	// ---------------------------------------------
-	// ✅ BUILD PER-SETTING FEEDBACKS (FILTERED BY ACTIVE MODEL)
-	// ---------------------------------------------
-
 	for (const [feedbackId, feedback] of Object.entries(rawFeedbacks)) {
-		// Strip _bool suffix before parsing so the model/cmdId/baseId are extracted correctly
 		const parseId = feedbackId.endsWith('_bool') ? feedbackId.slice(0, -5) : feedbackId
 		const { model, cmdId, baseId } = parseSettingId(parseId)
 
-		// Only include feedbacks for the currently active model
 		if (model !== activeModel) continue
 
-		// VALUE FEEDBACK: Returns current value for local variable
 		wiredFeedbacks[feedbackId] = {
 			...feedback,
 			callback: (feedbackEvent: any) => {
@@ -58,7 +45,6 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				const idAdd = feedbackEvent.options['idAdd'] ?? 0
 				const settingId = baseId + idAdd
 
-				// busCh from options takes priority; fall back to fixed busCh in schema
 				let busCh = feedbackEvent.options['busCh']
 				if (busCh === undefined) {
 					const schemaAction = findActionForSetting(schemas, model, cmdId, settingId)
@@ -66,8 +52,6 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 						busCh = schemaAction.busCh
 					}
 				}
-				// Last resort: look up fixed busCh directly from the raw device schema,
-				// in case getNormalizedSchemas() stripped the property (e.g. Mic Electret Power).
 				if (busCh === undefined) {
 					const rawAction = schemasRaw[model]?.cmdSchema?.find((a: any) => a.cmd_id === cmdId && a.id === settingId)
 					if (rawAction?.busCh !== undefined) {
@@ -77,28 +61,20 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 
 				const current = self.stController.getSettingValue(ip, cmdId, settingId, busCh)
 
-				// Boolean feedbacks: any non-zero value = active (true), zero = inactive (false).
-				// This works for all On/Off settings regardless of what the "On" ID value is
-				// in the schema (e.g. Mic Electret Power uses 5 for On, not 1).
-				// Returns a real boolean — used for button coloring only, not variables.
 				if (feedbackId.endsWith('_bool')) {
 					return current !== undefined && current !== 0
 				}
 
-				// Check if user wants label instead of numeric value
 				const showLabel = feedbackEvent.options['showLabel'] ?? false
 
 				if (showLabel && current !== undefined) {
 					const label = getLabelForValue(schemas, model, cmdId, settingId, current)
-					// If no choice label was found (returned a number), the setting has no
-					// discrete choices — treat it as boolean and show true/false.
 					if (typeof label === 'number') {
 						return label !== 0 ? 'true' : 'false'
 					}
 					return label
 				}
 
-				// Return numeric value directly for local variable (type: 'value')
 				return current ?? 0
 			},
 		}
