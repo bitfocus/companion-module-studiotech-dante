@@ -1,6 +1,6 @@
 ## Companion Module for Studio Technologies Dante Devices
 
-### v0.7.5
+### v0.7.6
 
 Controls Studio Technologies Dante intercom and audio devices over your Dante network.
 

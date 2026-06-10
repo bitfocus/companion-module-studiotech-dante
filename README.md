@@ -4,7 +4,7 @@ See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE)
 
 Change log:
 
-### v0.7.5
+### v0.7.6
 
 - Fix problems reported by Module review
 
