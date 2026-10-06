@@ -1,6 +1,6 @@
 ## Companion Module for Studio Technologies Dante Devices
 
-### v0.7.6
+### v0.7.7
 
 Controls Studio Technologies Dante intercom and audio devices over your Dante network.
 
@@ -16,6 +16,7 @@ Controls Studio Technologies Dante intercom and audio devices over your Dante ne
 | 232 / 234 / 236    | Announcer Console             |
 | 348                | Broadcast Console (8-channel) |
 | 370A / 373A / 374A | Desktop Intercom Station      |
+| 381                | On-Air Beltpack               |
 | 391                | Alerting Unit                 |
 | 392                | Visual Indicator Unit         |
 | 545DC              | Party-Line Interface          |
